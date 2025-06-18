@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13
+      nodejs: 12
+    commands:
+      - echo Installing dependencies...
+      - pip install -r deployment/requirements.txt
+      - npm install -g aws-cdk
+  
+  build:
+    commands:
+      - echo Deploying CDK stacks...
+      - cd deployment
+      - cdk deploy --all --require-approval never
+
+artifacts:
+  files:
+    - deployment/cdk.out/**/*
+  discard-paths: no

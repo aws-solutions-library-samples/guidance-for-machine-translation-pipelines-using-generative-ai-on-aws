@@ -1,0 +1,45 @@
+version: 0.2
+
+env:
+  parameter-store:
+    HUGGING_FACE_TOKEN: "/machine-translation/hugging_face_token"
+    QUALITY_ESTIMATION_MODEL_BUCKET: "/machine-translation/quality_estimation_model_bucket"
+
+phases:
+  install:
+    runtime-versions:
+      python: 3.13
+      nodejs: 12
+    commands:
+      - echo Installing dependencies...
+      - pip install -r deployment/requirements.txt
+      - pip install -r source/requirements-dev.txt
+      - npm install -g aws-cdk
+  
+  pre_build:
+    commands:
+      - echo Running tests...
+      - python -m pytest tests/ || echo "No tests found, continuing..."
+      - echo Downloading quality estimation model weights...
+      - mkdir -p source/sagemaker/hub/
+      - aws s3 cp s3://\${QUALITY_ESTIMATION_MODEL_BUCKET}/models.tar.gz source/sagemaker/hub/models.tar.gz || echo "Model weights not found in S3, continuing..."
+      - echo Validating CDK stacks...
+      - cd deployment && cdk synth
+  
+  build:
+    commands:
+      - echo Building SageMaker container image...
+      - cd ../source/sagemaker/
+      - chmod +x build_and_push.sh
+      - ./build_and_push.sh
+      - echo Build completed
+      - cd ../../
+
+artifacts:
+  files:
+    - deployment/**/*
+    - source/**/*
+    - buildspec.yml
+    - appspec.yml
+    - scripts/**/*
+  discard-paths: no

@@ -1,0 +1,20 @@
+version: 0.0
+Resources:
+  - TranslationPromptGeneratorCDK:
+      Type: AWS::Lambda::Function
+      Properties:
+        Name: TranslationPromptGeneratorCDK
+        Alias: live
+        CurrentVersion: !Ref Version
+        TargetVersion: !Ref TargetVersion
+  - CountTranslationPromptsCDK:
+      Type: AWS::Lambda::Function
+      Properties:
+        Name: CountTranslationPromptsCDK
+        Alias: live
+        CurrentVersion: !Ref Version
+        TargetVersion: !Ref TargetVersion
+  # Add other Lambda functions as needed
+Hooks:
+  BeforeAllowTraffic: !Ref BeforeAllowTrafficHook
+  AfterAllowTraffic: !Ref AfterAllowTrafficHook

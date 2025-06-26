@@ -1,0 +1,354 @@
+{
+    "Comment": "Workflow for Machine Translation",
+    "StartAt": "Pass",
+    "QueryLanguage": "JSONata",
+    "States": {
+        "Pass": {
+            "Type": "Pass",
+            "Next": "Generate Prompts",
+            "Assign": {
+                "callerId": "{% $states.input.callerId %}",
+                "executionId": "{% $split($states.context.Execution.Id, ':')[-1]\n %}",
+                "inputFileKey": "{% $states.input.inputFileKey %}",
+                "inputBucket": "{% $states.input.inputBucket %}",
+                "outputBucket": "{% $states.input.outputBucket %}"
+            }
+        },
+        "Generate Prompts": {
+            "Type": "Map",
+            "ItemProcessor": {
+                "ProcessorConfig": {
+                    "Mode": "DISTRIBUTED",
+                    "ExecutionType": "EXPRESS"
+                },
+                "StartAt": "GenerateTranslationPrompts",
+                "States": {
+                    "GenerateTranslationPrompts": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException",
+                                    "Lambda.TooManyRequestsException"
+                                ],
+                                "IntervalSeconds": 2,
+                                "MaxAttempts": 6,
+                                "BackoffRate": 2
+                            }
+                        ],
+                        "Arguments": {
+                            "FunctionName": "${lambdainvoke_FunctionName_bb13d64d}",
+                            "Payload": "{% $states.input %}"
+                        },
+                        "Output": "{% $states.result.Payload %}",
+                        "End": true
+                    }
+                }
+            },
+            "ItemReader": {
+                "Resource": "arn:aws:states:::s3:getObject",
+                "ReaderConfig": {
+                    "InputType": "CSV",
+                    "CSVHeaderLocation": "FIRST_ROW",
+                    "CSVDelimiter": "COMMA"
+                },
+                "Arguments": {
+                    "Bucket": "{% $inputBucket %}",
+                    "Key": "{% $inputFileKey %}"
+                }
+            },
+            "MaxConcurrency": 1000,
+            "Label": "GeneratePrompts",
+            "ItemBatcher": {
+                "MaxItemsPerBatch": 10
+            },
+            "ResultWriter": {
+                "WriterConfig": {
+                    "OutputType": "JSONL",
+                    "Transformation": "FLATTEN"
+                },
+                "Resource": "arn:aws:states:::s3:putObject",
+                "Arguments": {
+                    "Bucket": "{% $outputBucket %}",
+                    "Prefix": "{% $join([$callerId, '/', $executionId, '/pipeline/prompts']) %}"
+                }
+            },
+            "Next": "Count Prompt Records",
+            "ItemSelector": {
+                "item": "{% $states.context.Map.Item.Value %}",
+                "callerId": "{% $callerId %}"
+            }
+        },
+        "Count Prompt Records": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_8f56d740}",
+                "Payload": "{% $states.input %}"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "Next": "Choice"
+        },
+        "Choice": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Next": "TranslateText",
+                    "Condition": "{% $states.input.record_count<100 %}",
+                    "Output": "{% $states.input %}"
+                }
+            ],
+            "Default": "StartBedorckBatchInferenceJob"
+        },
+        "TranslateText": {
+            "Type": "Map",
+            "ItemProcessor": {
+                "ProcessorConfig": {
+                    "Mode": "DISTRIBUTED",
+                    "ExecutionType": "STANDARD"
+                },
+                "StartAt": "RunOnDemandInferences",
+                "States": {
+                    "RunOnDemandInferences": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Output": "{% $states.result.Payload %}",
+                        "Arguments": {
+                            "FunctionName": "${lambdainvoke_FunctionName_025afb4a}",
+                            "Payload": "{% $states.input %}"
+                        },
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException",
+                                    "Lambda.TooManyRequestsException"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 3,
+                                "BackoffRate": 2,
+                                "JitterStrategy": "FULL"
+                            }
+                        ],
+                        "End": true
+                    }
+                }
+            },
+            "Next": "Transform Inference Output",
+            "Label": "Map",
+            "MaxConcurrency": 1000,
+            "ItemReader": {
+                "Resource": "arn:aws:states:::s3:getObject",
+                "ReaderConfig": {
+                    "InputType": "JSONL"
+                },
+                "Arguments": {
+                    "Bucket": "{% $states.input.input_bucket %}",
+                    "Key": "{% $states.input.input_file %}"
+                }
+            },
+            "ResultWriter": {
+                "Resource": "arn:aws:states:::s3:putObject",
+                "Arguments": {
+                    "Bucket": "{% $outputBucket %}",
+                    "Prefix": "{% $join([$callerId, '/', $executionId, '/pipeline/inferences']) %}"
+                },
+                "WriterConfig": {
+                    "OutputType": "JSON",
+                    "Transformation": "FLATTEN"
+                }
+            },
+            "ItemBatcher": {
+                "MaxItemsPerBatch": 10
+            },
+            "ItemSelector": {
+                "item": "{% $states.context.Map.Item.Value %}",
+                "callerId": "{% $callerId %}"
+            }
+        },
+        "Transform Inference Output": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_5fc2e3a1}",
+                "Payload": "{% $states.input %}"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "Next": "QualityAssessment"
+        },
+        "QualityAssessment": {
+            "Type": "Map",
+            "ItemProcessor": {
+                "ProcessorConfig": {
+                    "Mode": "DISTRIBUTED",
+                    "ExecutionType": "EXPRESS"
+                },
+                "StartAt": "AssessTranslationQuality",
+                "States": {
+                    "AssessTranslationQuality": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Output": "{% $states.result.Payload %}",
+                        "Arguments": {
+                            "FunctionName": "${lambdainvoke_FunctionName_67ab9c2d}",
+                            "Payload": "{% $states.input %}"
+                        },
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException",
+                                    "Lambda.TooManyRequestsException"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 3,
+                                "BackoffRate": 2,
+                                "JitterStrategy": "FULL"
+                            }
+                        ],
+                        "End": true
+                    }
+                }
+            },
+            "Label": "QualityAssessment",
+            "MaxConcurrency": 1000,
+            "ItemReader": {
+                "Resource": "arn:aws:states:::s3:getObject",
+                "ReaderConfig": {
+                    "InputType": "JSONL"
+                },
+                "Arguments": {
+                    "Bucket": "{% $states.input.resultBucket %}",
+                    "Key": "{% $states.input.resultFile %}"
+                }
+            },
+            "ItemBatcher": {
+                "MaxItemsPerBatch": 10
+            },
+            "ResultWriter": {
+                "WriterConfig": {
+                    "OutputType": "JSONL",
+                    "Transformation": "FLATTEN"
+                },
+                "Resource": "arn:aws:states:::s3:putObject",
+                "Arguments": {
+                    "Prefix": "{% $join([$callerId, '/', $executionId, '/pipeline/quality_control']) %}",
+                    "Bucket": "{% $states.input.resultBucket %}"
+                }
+            },
+            "Next": "PrepareMapInput",
+            "ItemSelector": {
+                "item": "{% $states.context.Map.Item.Value %}",
+                "callerId": "{% $callerId %}"
+            },
+            "Assign": {
+                "RawOutputPath": "{% $join([$states.input.resultBucket,'/', $callerId, '/', $executionId, '/pipeline/quality_control']) %}",
+                "TransformedOutputPath": "{% $join([$states.input.resultBucket,'/', $callerId, '/', $executionId, '/analysis']) %}"
+            }
+        },
+        "PrepareMapInput": {
+            "Type": "Pass",
+            "Next": "QualityEstimation",
+            "Output": {
+                "MapRunArn": "{% $states.input.MapRunArn %}",
+                "ResultWriterDetails": "{% $states.input.ResultWriterDetails %}",
+                "input_file": "{% $replace($states.input.ResultWriterDetails.Key, 'manifest.json', 'SUCCEEDED_0.jsonl') %}",
+                "input_bucket": "{% $states.input.ResultWriterDetails.Bucket %}"
+            }
+        },
+        "QualityEstimation": {
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_452ghc1k}",
+                "Payload": {
+                    "executionId": "{% $executionId %}",
+                    "callerId": "{% $callerId %}",
+                    "input_file": "{% $states.input.input_file %}",
+                    "input_bucket": "{% $states.input.input_bucket %}",
+                    "output_bucket": "{% $outputBucket %}",
+                    "output_prefix": "{% $join([$callerId, '/', $executionId, '/pipeline/quality_estimation']) %}",
+                    "taskToken": "{% $states.context.Task.Token %}"
+                }
+            },
+            "Output": {
+                "quality_estimation_path": "{% $states.result.outputPath %}"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "Type": "Task",
+            "Next": "ProcessTranslationResults"
+        },
+        "ProcessTranslationResults": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::glue:startJobRun.sync",
+            "Arguments": {
+                "JobName": "${GlueJobName}",
+                "Arguments": {
+                    "--execution_id": "{% $executionId %}",
+                    "--caller_id": "{% $callerId %}",
+                    "--input_bucket": "{% $outputBucket %}",
+                    "--output_bucket": "{% $outputBucket %}",
+                    "--quality_control_path": "{% $join([$callerId, '/', $executionId, '/pipeline/quality_control']) %}",
+                    "--quality_estimation_path": "{% $states.input.quality_estimation_path %}",
+                    "--output_path": "{% $join([$callerId, '/', $executionId, '/analysis']) %}"
+                }
+            },
+            "End": true
+        },
+        "StartBedorckBatchInferenceJob": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_379ed8b3}",
+                "Payload": "{% $states.input %}"
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "End": true
+        }
+    }
+}

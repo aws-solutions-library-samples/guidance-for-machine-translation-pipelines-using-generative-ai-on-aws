@@ -1,215 +1,334 @@
-# Guidance Title (required)
+# Guidance for Machine Translation pipelines using Generative AI on AWS
 
-The Guidance title should be consistent with the title established first in Alchemy.
-
-**Example:** *Guidance for Product Substitutions on AWS*
-
-This title correlates exactly to the Guidance it’s linked to, including its corresponding sample code repository. 
-
-
-## Table of Contents (required)
-
-List the top-level sections of the README template, along with a hyperlink to the specific section.
+## Table of Contents
 
 ### Required
 
-1. [Overview](#overview-required)
+1. [Overview](#overview)
     - [Cost](#cost)
-2. [Prerequisites](#prerequisites-required)
-    - [Operating System](#operating-system-required)
-3. [Deployment Steps](#deployment-steps-required)
-4. [Deployment Validation](#deployment-validation-required)
-5. [Running the Guidance](#running-the-guidance-required)
-6. [Next Steps](#next-steps-required)
-7. [Cleanup](#cleanup-required)
+2. [Prerequisites](#prerequisites)
+    - [Operating System](#operating-system)
+3. [Deployment Steps](#deployment-steps)
+4. [Deployment Validation](#deployment-validation)
+5. [Running the Guidance](#running-the-guidance)
+6. [Next Steps](#next-steps)
+7. [Cleanup](#cleanup)
+8. [FAQ, known issues, additional considerations, and limitations](#faq-known-issues-additional-considerations-and-limitations)
+9. [Notices](#notices)
+10. [Authors](#authors)
 
-***Optional***
 
-8. [FAQ, known issues, additional considerations, and limitations](#faq-known-issues-additional-considerations-and-limitations-optional)
-9. [Revisions](#revisions-optional)
-10. [Notices](#notices-optional)
-11. [Authors](#authors-optional)
+## Overview
 
-## Overview (required)
+This Guidance provides a comprehensive machine translation pipeline using Amazon Bedrock and other AWS services. It addresses the challenge of efficiently translating large volumes of text while maintaining high quality through automated quality assessment and estimation.
 
-1. Provide a brief overview explaining the what, why, or how of your Guidance. You can answer any one of the following to help you write this:
+The solution enables organizations to:
+- Process batch translations at scale
+- Evaluate translation quality using AI-powered assessment
+- Estimate quality metrics using specialized models
+- Store translation memory for future reference and improvement
 
-    - **Why did you build this Guidance?**
-    - **What problem does this Guidance solve?**
+![Architecture Diagram](assets/images/architecture-diagram.png)
 
-2. Include the architecture diagram image, as well as the steps explaining the high-level overview and flow of the architecture. 
-    - To add a screenshot, create an ‘assets/images’ folder in your repository and upload your screenshot to it. Then, using the relative file path, add it to your README. 
+The architecture follows these key steps:
+1. Upload source sentences to Amazon Simple Storage Service (Amazon S3) Input Bucket to initiate the translation process.
+2. Amazon Step Functions initiates the translation pipeline orchestration workflow.
+3. AWS Lambda function begins execution, receiving configuration parameters from AWS Systems Manager Parameter Store for secure management. 
+4. AWS Lambda generates and stores translation prompts in the Amazon S3 Input Bucket
+5. AWS Lambda invokes Amazon Bedrock Foundation Models foundation models to perform machine translation.
+6. The translated outputs from Amazon Bedrock are stored in the Amazon S3 Model Output bucket.
+7. AWS Lambda retrieves the translated content from Amazon S3 Model Output
+8. AWS Lambda sends the translations to Amazon SageMaker Endpoint for COMET score estimation.
+9. Amazon SageMaker evaluation results are consolidated with the output and stored in Amazon S3 in the Consolidated Results bucket.
+10. AWS Lambda invokes Amazon Bedrock for LLM driven qualitative assessment.
+11. Amazon Bedrock's quality assessment results are stored in the Amazon S3 Consolidated Results bucket.
+12. AWS Glue processes the consolidated results from the Amazon S3 Evaluation Results bucket for end-user consumption and analysis.
 
-### Cost ( required )
 
-This section is for a high-level cost estimate. Think of a likely straightforward scenario with reasonable assumptions based on the problem the Guidance is trying to solve. Provide an in-depth cost breakdown table in this section below ( you should use AWS Pricing Calculator to generate cost breakdown ).
+### Cost
 
-Start this section with the following boilerplate text:
+You are responsible for the cost of the AWS services used while running this Guidance. As of June 2025, the cost for running this Guidance with the default settings in the US East (N. Virginia) is approximately X per month for processing (Y records).
 
-_You are responsible for the cost of the AWS services used while running this Guidance. As of <month> <year>, the cost for running this Guidance with the default settings in the <Default AWS Region (Most likely will be US East (N. Virginia)) > is approximately $<n.nn> per month for processing ( <nnnnn> records )._
+We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html) through [AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/) to help manage costs. Prices are subject to change. For full details, refer to the pricing webpage for each AWS service used in this Guidance.
 
-Replace this amount with the approximate cost for running your Guidance in the default Region. This estimate should be per month and for processing/serving resonable number of requests/entities.
+### Sample Cost Table
 
-Suggest you keep this boilerplate text:
-_We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html) through [AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/) to help manage costs. Prices are subject to change. For full details, refer to the pricing webpage for each AWS service used in this Guidance._
-
-### Sample Cost Table ( required )
-
-**Note : Once you have created a sample cost table using AWS Pricing Calculator, copy the cost breakdown to below table and upload a PDF of the cost estimation on BuilderSpace. Do not add the link to the pricing calculator in the ReadMe.**
-
-The following table provides a sample cost breakdown for deploying this Guidance with the default parameters in the US East (N. Virginia) Region for one month.
+The following table provides a sample cost breakdown for deploying this Guidance with the default parameters in the US East (Ohio) Region for one request of around 200 characters.
 
 | AWS service  | Dimensions | Cost [USD] |
 | ----------- | ------------ | ------------ |
-| Amazon API Gateway | 1,000,000 REST API calls per month  | $ 3.50month |
-| Amazon Cognito | 1,000 active users per month without advanced security feature | $ 0.00 |
+| Amazon Aurora PostGresSQL* | Aurora Serverless v2, 1 ACU per hour, Storage amount (100 GB), 1 hour usage  | $ 0.25 |
+| AWS Secrets Manager | Number of secrets (2), Average duration of each secret (30 days), Number of API calls (3 per month) | $ 0.80 |
+| Amazon Elastic Container Registry | Amount of data stored (1 GB per month)  | $ 0.10 |
+| Amazon SageMaker (Inference) | Instance name (ml.c4.2xlarge), Number of Batch Transform jobs per month (1), Number of instances per job (1), Hour(s) per instance per job (0.5) | $ 0.24 |
+| Amazon Bedrock (Nova) | 1.00 K input tokens 1.00 K output tokens | $ 0.004 |
+| AWS Glue | Number of DPUs for Apache Spark job (10), Number of DPUs for Python Shell job (0.0625)  | $ 0.75 |
+| AWS Lambda | Amount of ephemeral storage allocated (512 MB), Number of requests (10 requesth) | $ 0.1 |
+| AWS Step Functions | State transitions per workflow (12)  | $ 0.1 |
 
-## Prerequisites (required)
+* Please note that the Aurora database is optional and only relevant when translation memory is used. Cost will vary depending on usage and data stored
 
-### Operating System (required)
+## Prerequisites
 
-- Talk about the base Operating System (OS) and environment that can be used to run or deploy this Guidance, such as *Mac, Linux, or Windows*. Include all installable packages or modules required for the deployment. 
-- By default, assume Amazon Linux 2/Amazon Linux 2023 AMI as the base environment. All packages that are not available by default in AMI must be listed out.  Include the specific version number of the package or module.
+### Operating System
 
-**Example:**
-“These deployment instructions are optimized to best work on **<Amazon Linux 2 AMI>**.  Deployment in another OS may require additional steps.”
+These deployment instructions are optimized to best work on **Amazon Linux 2 AMI**. Deployment in another OS may require additional steps.
 
-- Include install commands for packages, if applicable.
+The solution can also be deployed from macOS or Windows environments with the following packages installed:
 
+- Python 3.13 or later
+- Node.js 12.x or later
+- AWS CDK CLI (`npm install -g aws-cdk`)
+- Docker or Podman for building container images
 
-### Third-party tools (If applicable)
+### Third-party tools
 
-*List any installable third-party tools required for deployment.*
+- Docker or Podman for building the SageMaker container image
 
+### AWS account requirements
 
-### AWS account requirements (If applicable)
+- AWS account with permissions to create and manage the following services:
+  - Amazon Bedrock
+  - AWS Lambda
+  - Amazon S3
+  - AWS Step Functions
+  - Amazon Aurora PostgreSQL
+  - Amazon SageMaker
+  - AWS Glue
+  - AWS IAM
 
-*List out pre-requisites required on the AWS account if applicable, this includes enabling AWS regions, requiring ACM certificate.*
+- Amazon Bedrock model access must be enabled for the following models:
+  - Amazon Nova Pro (us.amazon.nova-pro-v1:0)
 
-**Example:** “This deployment requires you have public ACM certificate available in your AWS account”
+### aws cdk bootstrap
 
-**Example resources:**
-- ACM certificate 
-- DNS record
-- S3 bucket
-- VPC
-- IAM role with specific permissions
-- Enabling a Region or service etc.
+This Guidance uses aws-cdk. If you are using aws-cdk for first time, please perform the below bootstrapping:
 
+```bash
+cdk bootstrap aws://ACCOUNT-NUMBER/REGION
+```
 
-### aws cdk bootstrap (if sample code has aws-cdk)
+Replace `ACCOUNT-NUMBER` with your AWS account number and `REGION` with your target AWS region.
 
-<If using aws-cdk, include steps for account bootstrap for new cdk users.>
+### Service limits (if applicable)
 
-**Example blurb:** “This Guidance uses aws-cdk. If you are using aws-cdk for first time, please perform the below bootstrapping....”
-
-### Service limits  (if applicable)
-
-<Talk about any critical service limits that affect the regular functioning of the Guidance. If the Guidance requires service limit increase, include the service name, limit name and link to the service quotas page.>
+- Amazon Bedrock has default quotas for API requests per second. You may need to request a quota increase for production workloads.
+- AWS SageMaker has instance type limits that may require an increase for larger deployments.
 
 ### Supported Regions (if applicable)
 
-<If the Guidance is built for specific AWS Regions, or if the services used in the Guidance do not support all Regions, please specify the Region this Guidance is best suited for>
-
+This Guidance is best suited for regions where Amazon Bedrock and all required models are available. As of the latest update, the following regions are recommended:
+- US East (N. Virginia)
+- US West (Oregon)
+- Europe (Frankfurt)
 
 ## Deployment Steps (required)
 
-Deployment steps must be numbered, comprehensive, and usable to customers at any level of AWS expertise. The steps must include the precise commands to run, and describe the action it performs.
+1. Clone the repo using command 
+```bash
+git clone https://github.com/aws-samples/guidance-for-machine-translation-pipelines-using-amazon-bedrock.git
+```
 
-* All steps must be numbered.
-* If the step requires manual actions from the AWS console, include a screenshot if possible.
-* The steps must start with the following command to clone the repo. ```git clone xxxxxxx```
-* If applicable, provide instructions to create the Python virtual environment, and installing the packages using ```requirement.txt```.
-* If applicable, provide instructions to capture the deployed resource ARN or ID using the CLI command (recommended), or console action.
+2. Navigate to the repo folder 
+```bash
+cd guidance-for-machine-translation-pipelines-using-amazon-bedrock
+```
 
- 
-**Example:**
+3. Create and activate a Python virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
 
-1. Clone the repo using command ```git clone xxxxxxxxxx```
-2. cd to the repo folder ```cd <repo-name>```
-3. Install packages in requirements using command ```pip install requirement.txt```
-4. Edit content of **file-name** and replace **s3-bucket** with the bucket name in your account.
-5. Run this command to deploy the stack ```cdk deploy``` 
-6. Capture the domain name created by running this CLI command ```aws apigateway ............```
+4. Install the required dependencies:
+```bash
+pip install -r deployment/requirements.txt
+```
 
+5. Build the quality estimation image:
+```bash
+cd source/sagemaker/
+source ./build_and_push.sh
+```
 
+6. Update the `cdk.json` context with your configuration:
+```json
+{
+  "context": {
+    "input_bucket_name": "your-input-bucket-name",
+    "output_bucket_name": "your-output-bucket-name",
+    "quality_estimation_sgm_model_name":"your-quality-estimation-model-name",
+    "quality_estimation_sgm_endpoint_name": "your-quality-estimation-endpoint-name",
+    "quality_estimation_sgm_image_uri":"your-quality-estimation-image-uri",
+    "quality_estimation_sgm_topic_name":"your-quality-estimation-sgm-topic-name",
+    "hugging_face_token": "your-hugging-face-token",
+    "marketplace_endpoint_name": "marketplace-endpoint-name", # optional
+  }
+}
+```
 
-## Deployment Validation  (required)
+8. Navigate to the deployment directory:
+```bash
+cd ../../deployment
+```
 
-<Provide steps to validate a successful deployment, such as terminal output, verifying that the resource is created, status of the CloudFormation template, etc.>
+9. Bootstrap your AWS environment (if you haven't already):
+```bash
+cdk bootstrap
+```
 
+10. Synthesize the CloudFormation template:
+```bash
+cdk synth
+```
 
-**Examples:**
+11. Deploy the stacks:
+```bash
+cdk deploy --all
+```
 
-* Open CloudFormation console and verify the status of the template with the name starting with xxxxxx.
-* If deployment is successful, you should see an active database instance with the name starting with <xxxxx> in        the RDS console.
-*  Run the following CLI command to validate the deployment: ```aws cloudformation describe xxxxxxxxxxxxx```
+## Deployment Validation
 
+1. Open the AWS CloudFormation console and verify that all stacks have been created successfully with a status of "CREATE_COMPLETE":
+   - DatabaseStack
+   - SageMakerStack
+   - WorkflowStack
 
+2. Verify the Step Functions state machine has been created:
+   - Open the AWS Step Functions console
+   - Look for a state machine named "BatchMachineTranslationStateMachineCDK"
+   - Verify the state machine definition matches the expected workflow
 
-## Running the Guidance (required)
+3. Verify the SageMaker endpoint is active:
+   - Open the Amazon SageMaker console
+   - Navigate to Endpoints
+   - Verify the quality estimation endpoint is "InService"
 
-<Provide instructions to run the Guidance with the sample data or input provided, and interpret the output received.> 
+4. Run the following CLI command to validate the deployment:
+```bash
+aws stepfunctions describe-state-machine --state-machine-arn arn:aws:states:<region>:<account-id>:stateMachine:BatchMachineTranslationStateMachineCDK
+```
 
-This section should include:
+## Running the Guidance
 
-* Guidance inputs
-* Commands to run
-* Expected output (provide screenshot if possible)
-* Output description
+### Prepare Input Data
 
+1. Create a CSV file with the following columns:
+   - source_language: The language code of the source text
+   - target_language: The language code of the target text
+   - source_text: The text to be translated
+   - context: (Optional) Additional context to improve translation quality
 
+2. Upload the CSV file to your input S3 bucket:
+```bash
+aws s3 cp your-input-file.csv s3://your-input-bucket-name/inputs/your-input-file.csv
+```
 
-## Next Steps (required)
+### Start the Translation Workflow
 
-Provide suggestions and recommendations about how customers can modify the parameters and the components of the Guidance to further enhance it according to their requirements.
+1. Start the Step Functions workflow with the following input:
+```bash
+aws stepfunctions start-execution \
+  --state-machine-arn arn:aws:states:<region>:<account-id>:stateMachine:BatchMachineTranslationStateMachineCDK \
+  --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.csv"}'
+```
 
+2. Monitor the execution in the AWS Step Functions console:
+   - Navigate to the Step Functions console
+   - Select the "BatchMachineTranslationStateMachineCDK" state machine
+   - Find your execution and monitor its progress
 
-## Cleanup (required)
+### View Results
 
-- Include detailed instructions, commands, and console actions to delete the deployed Guidance.
-- If the Guidance requires manual deletion of resources, such as the content of an S3 bucket, please specify.
+1. Once the workflow completes, the results will be available in your output S3 bucket:
+```bash
+aws s3 ls s3://your-output-bucket-name/user123/<execution-id>/analysis/
+```
 
+2. Download the results:
+```bash
+aws s3 cp s3://your-output-bucket-name/user123/<execution-id>/analysis/results.jsonl .
+```
 
+3. The results file contains:
+   - Source text
+   - Translated text
+   - Quality assessment scores
+   - Quality estimation metrics
+   - Recommendations for improvement
 
-## FAQ, known issues, additional considerations, and limitations (optional)
+## Next Steps
 
+After deploying this Guidance, you can enhance it in the following ways:
 
-**Known issues (optional)**
+1. **Customize Translation Models**: Experiment with different Amazon Bedrock models to find the best fit for your specific language pairs and content types.
 
-<If there are common known issues, or errors that can occur during the Guidance deployment, describe the issue and resolution steps here>
+2. **Fine-tune Quality Assessment**: Adjust the quality assessment prompts in `source/lambda/quality_assessment/prompt_template.txt` to focus on specific aspects of translation quality relevant to your use case.
 
+3. **Integrate with Translation Memory**: Extend the database functionality to build a more robust translation memory system that can suggest translations based on previous similar content.
 
-**Additional considerations (if applicable)**
+4. **Add Human Review Workflow**: Implement a human review step for translations that don't meet quality thresholds, using Amazon Augmented AI (A2I).
 
-<Include considerations the customer must know while using the Guidance, such as anti-patterns, or billing considerations.>
+5. **Implement Domain-specific Terminology**: Create and maintain terminology databases for specific domains to ensure consistent translation of technical terms.
 
-**Examples:**
+6. **Scale for Production**: Adjust the infrastructure for production workloads by:
+   - Increasing Lambda function timeouts and memory
+   - Scaling SageMaker endpoints
+   - Implementing auto-scaling for Aurora PostgreSQL
+   - Adding monitoring and alerting
 
-- “This Guidance creates a public AWS bucket required for the use-case.”
-- “This Guidance created an Amazon SageMaker notebook that is billed per hour irrespective of usage.”
-- “This Guidance creates unauthenticated public API endpoints.”
+## Cleanup
 
+To avoid incurring future charges, follow these steps to delete all resources:
 
-Provide a link to the *GitHub issues page* for users to provide feedback.
+1. Empty the S3 buckets:
+```bash
+aws s3 rm s3://your-input-bucket-name --recursive
+aws s3 rm s3://your-output-bucket-name --recursive
+```
 
+2. Delete the CDK stacks:
+```bash
+cd deployment
+cdk destroy --all
+```
 
-**Example:** *“For any feedback, questions, or suggestions, please use the issues tab under this repo.”*
+3. Delete the ECR repository containing the quality estimation image:
+```bash
+aws ecr delete-repository --repository-name <repository-name> --force
+```
 
-## Revisions (optional)
+## FAQ, known issues, additional considerations, and limitations
 
-Document all notable changes to this project.
+### Frequently Asked Questions
 
-Consider formatting this section based on Keep a Changelog, and adhering to Semantic Versioning.
+**Q: What languages are supported by this solution?**
+A: The solution supports all languages available in the Amazon Bedrock models you choose to use. Amazon Nova Pro supports a wide range of languages, but performance may vary across language pairs.
 
-## Notices (optional)
+**Q: How can I improve translation quality?**
+A: You can improve translation quality by providing more context in your input data, fine-tuning the prompts, and using the quality assessment feedback to iteratively improve your translations.
 
-Include a legal disclaimer
+**Q: Can this solution handle specialized terminology?**
+A: Yes, you can include specialized terminology in the context field of your input data. For more robust terminology handling, consider extending the solution with a terminology database.
 
-**Example:**
-*Customers are responsible for making their own independent assessment of the information in this Guidance. This Guidance: (a) is for informational purposes only, (b) represents AWS current product offerings and practices, which are subject to change without notice, and (c) does not create any commitments or assurances from AWS and its affiliates, suppliers or licensors. AWS products or services are provided “as is” without warranties, representations, or conditions of any kind, whether express or implied. AWS responsibilities and liabilities to its customers are controlled by AWS agreements, and this Guidance is not part of, nor does it modify, any agreement between AWS and its customers.*
+### Known Issues
 
+- The quality estimation model may occasionally time out for very large batches. Consider breaking large translation jobs into smaller batches.
+- Some language pairs may have lower quality scores due to limitations in the underlying models.
 
-## Authors (optional)
+### Additional Considerations
 
-Name of code contributors
+- This Guidance creates an Amazon SageMaker endpoint that is billed per hour regardless of usage.
+- The Aurora PostgreSQL database is provisioned as Serverless v2, which has minimum capacity units that will be billed even during idle periods.
+- Consider implementing data encryption at rest and in transit for sensitive content.
+
+For any feedback, questions, or suggestions, please use the issues tab under this repo.
+
+## Notices
+
+Customers are responsible for making their own independent assessment of the information in this Guidance. This Guidance: (a) is for informational purposes only, (b) represents AWS current product offerings and practices, which are subject to change without notice, and (c) does not create any commitments or assurances from AWS and its affiliates, suppliers or licensors. AWS products or services are provided "as is" without warranties, representations, or conditions of any kind, whether express or implied. AWS responsibilities and liabilities to its customers are controlled by AWS agreements, and this Guidance is not part of, nor does it modify, any agreement between AWS and its customers.
+
+## Authors
+- Narcisse Zekpa: nzzekpa@amazon.com
+- Daniel Suarez: dssouto@amazon.com
+- Deepika Suresh: dpsure@amazon.com

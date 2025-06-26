@@ -1,0 +1,25 @@
+Task: 
+Translate the provided source text from {{source_lang}} to {{target_lang}}.
+
+Source text (in {{source_lang}}): 
+{{source_text}}
+
+Context information:
+    Examples:
+    {{translation_memory}}
+
+    Terminology:
+    {{terminology}}
+
+Model Instructions and Guidelines:
+1. Maintain the original meaning, tone, and nuance
+2. Preserve formatting, including paragraph breaks and bullet points
+3. Keep any proper nouns, technical terms, or brand names as they appear in the original text unless there's a standard translation
+4. ONLY translate the source text. DO NOT Translate the context information
+5. Use the examples provided in Examples section to influence the translation output's tone and vocabulary.
+6. Use the custom terms in the Terminology section as strict translation guidelines.
+7. For ambiguous terms, choose the most appropriate translation based on context
+8. Ensure cultural appropriateness and localization where necessary
+9. Return only the translated text without explanations or notes
+
+Translation ({{target_lang}}):

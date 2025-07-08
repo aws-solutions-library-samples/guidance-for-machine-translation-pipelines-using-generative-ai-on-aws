@@ -43,6 +43,7 @@ def lambda_handler(event, context):
 
             # Extract input parameters
             source_text = item.get('source_text')
+
             if 'source_lang' in item:
                 source_lang = item['source_lang']
             else:
@@ -108,7 +109,8 @@ def generate_translation_prompt(source_text, source_lang, target_lang):
     terminology = None
     translation_memory = None
 
-    #terminology, translation_memory = get_translation_customization(source_text, source_lang, target_lang)
+    if 'ENABLE_TRANSLATION_MEMORY' in os.environ and os.environ['ENABLE_TRANSLATION_MEMORY'] == 'true':
+        terminology, translation_memory = get_translation_customization(source_text, source_lang, target_lang)
 
     # Load prompt template
     try:
@@ -191,7 +193,7 @@ def call_rds_data_api(source_lang, target_lang, source_text):
 
     rds_data = boto3.client('rds-data')
     embedding_str = generate_embeddings(source_text)
-    sql_text = f"SELECT unique_id, source_text, target_text FROM translation_memory ORDER BY source_text_embedding <=> CAST('{embedding_str}' AS VECTOR) limit 3;" # nosec B608
+    sql_text = f"SELECT unique_id, source_text, target_text FROM translation_memory ORDER BY source_text_embedding <=> CAST('{embedding_str}' AS VECTOR) limit 1;" # nosec B608
 
     
     max_retries = 5

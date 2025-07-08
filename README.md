@@ -7,7 +7,6 @@
 1. [Overview](#overview)
     - [Cost](#cost)
 2. [Prerequisites](#prerequisites)
-    - [Operating System](#operating-system)
 3. [Deployment Steps](#deployment-steps)
 4. [Deployment Validation](#deployment-validation)
 5. [Running the Guidance](#running-the-guidance)
@@ -70,17 +69,6 @@ The following table provides a sample cost breakdown for deploying this Guidance
 
 ## Prerequisites
 
-### Operating System
-
-These deployment instructions are optimized to best work on **Amazon Linux 2 AMI**. Deployment in another OS may require additional steps.
-
-The solution can also be deployed from macOS or Windows environments with the following packages installed:
-
-- Python 3.13 or later
-- Node.js 12.x or later
-- AWS CDK CLI (`npm install -g aws-cdk`)
-- Docker or Podman for building container images
-
 ### Third-party tools
 
 - Docker or Podman for building the SageMaker container image
@@ -121,6 +109,10 @@ This Guidance is best suited for regions where Amazon Bedrock and all required m
 - US East (N. Virginia)
 - US West (Oregon)
 - Europe (Frankfurt)
+
+### Input and output buckets
+
+The solution needs access to two S3 buckets, respectively for input and output data. You may use pre-existing buckets or create new ones. Throughout the guide we will refer to these buckets as "your-input-bucket-name" and "your-output-bucket-name".
 
 ## Deployment Steps (required)
 
@@ -163,6 +155,7 @@ source ./build_and_push.sh
     "quality_estimation_sgm_topic_name":"your-quality-estimation-sgm-topic-name",
     "hugging_face_token": "your-hugging-face-token",
     "marketplace_endpoint_name": "marketplace-endpoint-name", # optional
+    "config_secret_name": "workflow-bedrock-config" # optional, defaults to workflow-bedrock-config
   }
 }
 ```
@@ -219,6 +212,8 @@ aws stepfunctions describe-state-machine --state-machine-arn arn:aws:states:<reg
    - source_text: The text to be translated
    - context: (Optional) Additional context to improve translation quality
 
+   You can find a sample file (sample_test.csv) in the sample_data folder
+
 2. Upload the CSV file to your input S3 bucket:
 ```bash
 aws s3 cp your-input-file.csv s3://your-input-bucket-name/inputs/your-input-file.csv
@@ -232,6 +227,40 @@ aws stepfunctions start-execution \
   --state-machine-arn arn:aws:states:<region>:<account-id>:stateMachine:BatchMachineTranslationStateMachineCDK \
   --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.csv"}'
 ```
+
+You may also start the workflow from the console by opening the state machine configuration and clicking the Execute button.
+
+![State Machine](assets/images/state-machine.png)
+
+The pipeline accepts the following input parameters:
+- `callerId` (required): A unique identifier for tracking the translation job and organizing output files
+- `inputFileKey` (required): The S3 object key path to your CSV input file containing the translation requests
+- `inputBucket` (required): Input bucket
+- `outputBucket` (required): Output bucket containing all generated files by the state machine
+
+These parameters enable the workflow to process your data and store results in an organized manner within your output bucket.
+
+### Lambda Function Configuration
+
+The pipeline uses several Lambda functions with configurable environment variables:
+
+**Prompt Generator Function:**
+- `DATABASE_SECRET_ARN`: ARN of the Aurora credentials secret
+- `CLUSTER_ARN`: ARN of the Aurora PostgreSQL cluster
+- `DATABASE_NAME`: Name of the translation memory database
+- `WORKFLOW_SECRET_ARN`: ARN of the workflow configuration secret
+- `DEFAULT_SOURCE_LANG`: Default source language (default: "en")
+- `DEFAULT_TARGET_LANG`: Default target language (default: "fr")
+- `ENABLE_TRANSLATION_MEMORY`: Enable translation memory lookup (default: "true")
+
+**Quality Score Estimation:**
+- `SAGEMAKER_ENDPOINT_NAME`: Name of the SageMaker quality estimation endpoint
+- `QUALITY_ESTIMATION_MODE`: Mode for quality estimation model hosting ("MARKETPLACE_SELF_HOSTED" or "OPEN_SOURCE_SELF_HOSTED", default: OPEN_SOURCE_SELF_HOSTED)
+
+This guidance deploys ![Unbabel COMETKiwi](https://huggingface.co/Unbabel/wmt22-cometkiwi-da) quality scoring model as a SageMaker self-hosted endpoint. At first runtime it downloads open source weights from HuggingFace. Please note that the open source version is intented for experimentation and testing only. For a commercial use, please refer to ![Widn.ai MarketPlace listings](https://aws.amazon.com/marketplace/seller-profile?id=seller-akt6pplk7dme2)
+
+**Translation and Assessment Functions:**
+- `WORKFLOW_SECRET_ARN`: ARN of the workflow configuration secret containing Bedrock model IDs and inference profiles
 
 2. Monitor the execution in the AWS Step Functions console:
    - Navigate to the Step Functions console
@@ -256,6 +285,49 @@ aws s3 cp s3://your-output-bucket-name/user123/<execution-id>/analysis/results.j
    - Quality assessment scores
    - Quality estimation metrics
    - Recommendations for improvement
+
+## Translation Memory
+
+The translation memory feature enhances translation quality by leveraging previously translated content. To enable this functionality, you need to initialize the translation memory database with sample data.
+
+### Initialize Translation Memory Database
+
+Follow these steps to set up and populate the translation memory database:
+
+1. **Navigate to the database initialization notebook:**
+   ```bash
+   cd source/database/init_notebook/
+   ```
+
+2. **Open the Jupyter notebook using one of these options:**
+   
+   **Option A: Local Jupyter**
+   ```bash
+   jupyter notebook database_init.ipynb
+   ```
+   
+   **Option B: Amazon SageMaker Studio**
+   - Open Amazon SageMaker Studio in the AWS Console
+   - Upload the `database_init.ipynb` file to your SageMaker Studio environment
+   - Open the notebook and select a Python 3 kernel
+
+3. **Follow the notebook instructions to:**
+   - Install required Python dependencies
+   - Load sample WMT19 French-German translation data from HuggingFace
+   - Generate embeddings using Amazon Bedrock's Titan model
+   - Populate the Aurora PostgreSQL database with translation pairs and embeddings
+   - Test vector similarity search functionality
+
+4. **Update database connection parameters:**
+   Before running the notebook, replace the placeholder values with your actual CloudFormation output values:
+   - `DatabaseSecretArn`: ARN of the Aurora credentials secret
+   - `DatabaseClusterArn`: ARN of the Aurora PostgreSQL cluster
+   - `DatabaseName`: Name of the translation memory database
+
+Once initialized, the translation memory will automatically provide context to improve translation consistency for similar text segments.
+
+**Important:** Ensure that the `ENABLE_TRANSLATION_MEMORY` environment variable is set to "true" in the Prompt Generator Lambda function to activate translation memory functionality.
+
 
 ## Next Steps
 

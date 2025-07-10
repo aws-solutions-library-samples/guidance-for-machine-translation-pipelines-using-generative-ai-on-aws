@@ -85,7 +85,7 @@ The following table provides a sample cost breakdown for deploying this Guidance
   - AWS Glue
   - AWS IAM
 
-- Amazon Bedrock model access must be enabled for the following models:
+- Amazon Bedrock model access must be enabled for the following model ID(s):
   - Amazon Nova Pro (us.amazon.nova-pro-v1:0)
 
 ### aws cdk bootstrap
@@ -249,7 +249,7 @@ aws s3 cp your-input-file.csv s3://your-input-bucket-name/inputs/your-input-file
 ```bash
 aws stepfunctions start-execution \
   --state-machine-arn arn:aws:states:<region>:<account-id>:stateMachine:BatchMachineTranslationStateMachineCDK \
-  --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.csv"}'
+  --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.csv", "inputBucket": "your-input-bucket", "outputBucket": "your-input-bucket"}'
 ```
 
 You may also start the workflow from the console by opening the state machine configuration and clicking the Execute button.

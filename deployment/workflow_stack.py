@@ -577,8 +577,8 @@ class WorkflowStack(Stack):
             secret_name=secret_name,
             generate_secret_string=secretsmanager.SecretStringGenerator(
                 secret_string_template=json.dumps({
-                    "bedrock_model_id": "amazon.nova-pro-v1:0",
-                    "assessment_model_id": "amazon.nova-pro-v1:0"
+                    "bedrock_model_id": "us.amazon.nova-pro-v1:0",
+                    "assessment_model_id": "us.amazon.nova-pro-v1:0"
                 }),
                 generate_string_key="placeholder",
                 exclude_characters=" %+~`#$&*()|[]{}:;<>?!'/\"\\@"

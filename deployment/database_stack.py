@@ -12,7 +12,7 @@ from aws_cdk import (
 from constructs import Construct
 from cdk_nag import NagSuppressions
 
-class DatabaseStack(Stack):
+class DatabaseStack(Stack):   
     def __init__(self, scope: Construct, construct_id: str, vpc_id: str = None, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -99,7 +99,8 @@ class DatabaseStack(Stack):
         CfnOutput(self, "DatabaseClusterEndpoint", value=db_cluster.cluster_endpoint.hostname, export_name="DatabaseClusterEndpoint")
         CfnOutput(self, "DatabaseClusterPort", value=str(db_cluster.cluster_endpoint.port), export_name="DatabaseClusterPort")
         CfnOutput(self, "DatabaseName", value=database_name, export_name="DatabaseName")
-        CfnOutput(self, "DatabaseClusterArn",value=self.format_arn(service="rds",resource="cluster",resource_name=db_cluster.cluster_resource_identifier),export_name="DatabaseClusterArn")
+        cluster_arn = f"arn:aws:rds:{self.region}:{self.account}:cluster:{db_cluster.cluster_identifier}"
+        CfnOutput(self, "DatabaseClusterArn", value=db_cluster.cluster_arn, export_name="DatabaseClusterArn")
         
         # Setup secret rotation
         db_credentials.add_rotation_schedule(

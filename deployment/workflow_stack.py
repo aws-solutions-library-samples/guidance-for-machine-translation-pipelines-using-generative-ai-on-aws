@@ -185,7 +185,7 @@ class WorkflowStack(Stack):
                     "WORKFLOW_SECRET_ARN": self.workflow_secret.secret_arn,
                     "DEFAULT_SOURCE_LANG": "en",
                     "DEFAULT_TARGET_LANG": "fr",
-                    "ENABLE_TRANSLATION_MEMORY": "true"
+                    "ENABLE_TRANSLATION_MEMORY": "false"
                 }
             ),
             "count_prompts": lambda_.Function(
@@ -263,10 +263,13 @@ class WorkflowStack(Stack):
 
 
     def _create_step_functions_role(self, lambda_functions):
+        role_name = "StepFunctions_IAM_ROLE_BatchMachineTranslation"
+        
+        # Create a new role - if it already exists, CloudFormation will handle the error
         role = iam.Role(
             self, "StepFunctionsRole",
             assumed_by=iam.ServicePrincipal("states.amazonaws.com"),
-            role_name="StepFunctions_IAM_ROLE_BatchMachineTranslation"
+            role_name=role_name
         )
 
         # This suppression is now handled in _add_cdk_nag_suppressions method
@@ -332,9 +335,12 @@ class WorkflowStack(Stack):
         return role
 
     def _create_lambda_role(self) -> iam.Role:
+        role_name = "lambda-translation-role-cdk"
+        
+        # Create a new role - if it already exists, CloudFormation will handle the error
         lambda_role = iam.Role(
             self, "TranslationLambdaRole",
-            role_name="lambda-translation-role-cdk",
+            role_name=role_name,
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
         )
 
@@ -422,9 +428,12 @@ class WorkflowStack(Stack):
         return lambda_role
 
     def _create_quality_estimation_role(self) -> iam.Role:
+        role_name = "lambda-quality-estimation-role-cdk"
+        
+        # Create a new role - if it already exists, CloudFormation will handle the error
         quality_estimation_role = iam.Role(
             self, "QualityEstimationLambdaRole",
-            role_name="lambda-quality-estimation-role-cdk",
+            role_name=role_name,
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
         )
 
@@ -448,7 +457,6 @@ class WorkflowStack(Stack):
                 }
             ]
         )
-
 
         # Add permissions for async endpoint
         quality_estimation_role.add_to_policy(iam.PolicyStatement(
@@ -495,9 +503,12 @@ class WorkflowStack(Stack):
         
     def _create_glue_job(self):
         # Create Glue job role
+        role_name = "glue-translation-processor-role"
+        
+        # Create a new role - if it already exists, CloudFormation will handle the error
         glue_role = iam.Role(
             self, "TranslationGlueJobRole",
-            role_name="glue-translation-processor-role",
+            role_name=role_name,
             assumed_by=iam.ServicePrincipal("glue.amazonaws.com")
         )
         

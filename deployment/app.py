@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-import aws_cdk as cdk
+from aws_cdk import (
+    App,
+    Aspects
+)
 from database_stack import DatabaseStack
 from workflow_stack import WorkflowStack
 from sagemaker_stack import SageMakerStack
 from cdk_nag import AwsSolutionsChecks, NagSuppressions
 
 # Initialize the CDK app
-app = cdk.App()
+app = App()
 
 # Get context parameters
 vpc_id = app.node.try_get_context('vpc_id')
@@ -74,7 +77,7 @@ workflow_stack.add_dependency(database_stack)
 workflow_stack.add_dependency(sagemaker_stack)
 
 # Apply CDK-Nag to all stacks in the app
-cdk.Aspects.of(app).add(AwsSolutionsChecks())
+Aspects.of(app).add(AwsSolutionsChecks())
 
 # Add suppressions for specific rules if needed
 NagSuppressions.add_stack_suppressions(database_stack, [

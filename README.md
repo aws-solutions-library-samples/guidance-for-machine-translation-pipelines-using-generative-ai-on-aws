@@ -114,6 +114,9 @@ This Guidance is best suited for regions where Amazon Bedrock and all required m
 
 The solution needs access to two S3 buckets, respectively for input and output data. You may use pre-existing buckets or create new ones. Throughout the guide we will refer to these buckets as "your-input-bucket-name" and "your-output-bucket-name".
 
+### HuggingFace Access Token for COMET Score estimation model
+
+
 ## Deployment Steps (required)
 
 1. Clone the repo using command 
@@ -138,10 +141,13 @@ pip install -r deployment/requirements.txt
 ```
 
 5. Build the quality estimation image:
+
 ```bash
 cd source/sagemaker/
 source ./build_and_push.sh
 ```
+
+Feel free to update the AWS_DEFAULT_REGION beforehand. The initial implementation defaults to us-east-1.
 
 6. Update the `cdk.json` context with your configuration:
 ```json
@@ -151,11 +157,11 @@ source ./build_and_push.sh
     "output_bucket_name": "your-output-bucket-name",
     "quality_estimation_sgm_model_name":"your-quality-estimation-model-name",
     "quality_estimation_sgm_endpoint_name": "your-quality-estimation-endpoint-name",
-    "quality_estimation_sgm_image_uri":"your-quality-estimation-image-uri",
-    "quality_estimation_sgm_topic_name":"your-quality-estimation-sgm-topic-name",
+    "quality_estimation_sgm_image_uri":"your-quality-estimation-sgm-endpoint-image-uri",
+    "quality_estimation_sgm_topic_name":"sagemaker-quality-estimation-inference-topic", #defaults to sagemaker-quality-estimation-inference-topic
     "hugging_face_token": "your-hugging-face-token",
-    "marketplace_endpoint_name": "marketplace-endpoint-name", # optional
-    "config_secret_name": "workflow-bedrock-config" # optional, defaults to workflow-bedrock-config
+    "config_secret_name": "workflow-bedrock-config" # defaults to workflow-bedrock-config,
+    "marketplace_endpoint_name": "your-marketplace-endpoint-name" #optional
   }
 }
 ```
@@ -179,6 +185,24 @@ cdk synth
 ```bash
 cdk deploy --all
 ```
+
+## Deployment Step using Amazon Q CLI (experimental)
+
+![Amazon Q CLI](assets/images/amazon-q-cli.png)
+
+Alternatively, if you have access to the Amazon Q CLI you may use the agent to execute the deployment steps on your behalf while be prompted periodically for your approval or any missing information. To do so run the following commands:
+
+```bash
+q chat
+```
+Once the q chat session is initialized run:
+
+```bash
+> /context add README.md
+> /context add DEPLOYMENT_PROMPT.md
+> Deploy the solution in guided mode please!
+```
+Make sure your credentials are properly configured prior to initiating the Q Chat session.
 
 ## Deployment Validation
 
@@ -239,6 +263,15 @@ The pipeline accepts the following input parameters:
 - `outputBucket` (required): Output bucket containing all generated files by the state machine
 
 These parameters enable the workflow to process your data and store results in an organized manner within your output bucket.
+
+Once the state machine has run you should be able to view its entire execution and status from the Step Functions console.
+
+<img src="assets/images/state-machine-exec.png" alt="State Machine Execution" width="500" height="950"/>
+
+Please note that the state machine is configured to invoke Bedrock through the real-time API for any input file that includes 100 records or leszs (left side of the state machine). Beyond this threshold, the state machine swicthes to Amazon Bedrock Batch Inference mode (right side of the state machine).
+
+> [!WARNING]  
+> As of 07/09/2025 the batch mode is partially implemented. We recommend experimenting with payloads of 100 records or less, until we deliver the full batch functionality.
 
 ### Lambda Function Configuration
 

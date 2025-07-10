@@ -7,14 +7,14 @@
 # -----------------------------------------------------------------------------
 # ENVIRONMENT VARIABLES TO BE INITIALIZED:
 # -----------------------------------------------------------------------------
-# AWS_REGION - The AWS region where the ECR repository will be created
+# AWS_DEFAULT_REGION - The AWS region where the ECR repository will be created
 # ECR_REPOSITORY_NAME - Name for the ECR repository
 # IMAGE_TAG - Tag for the Docker image (default: latest)
 # -----------------------------------------------------------------------------
 
 # Set default values for environment variables
-AWS_REGION=${AWS_REGION:-"us-east-1"}
-ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-"machine-translation/quality-estimation-model"}
+AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-"us-east-1"}
+ECR_REPOSITORY_NAME=${ECR_REPOSITORY_NAME:-"machine-translation/comet-model"}
 IMAGE_TAG=${IMAGE_TAG:-"latest"}
 
 # Get AWS account ID
@@ -28,11 +28,11 @@ echo "AWS Account ID: $AWS_ACCOUNT_ID"
 
 # Create ECR repository if it doesn't exist
 echo "Creating ECR repository $ECR_REPOSITORY_NAME (if it doesn't exist)..."
-aws ecr create-repository --repository-name $ECR_REPOSITORY_NAME --region $AWS_REGION || echo "Repository already exists or couldn't be created."
+aws ecr create-repository --repository-name $ECR_REPOSITORY_NAME --region $AWS_DEFAULT_REGION || echo "Repository already exists or couldn't be created."
 
 # Authenticate Docker to ECR
 echo "Authenticating Docker with ECR..."
-aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
 if [ $? -ne 0 ]; then
   echo "Error: Failed to authenticate Docker with ECR."
   exit 1
@@ -54,11 +54,11 @@ fi
 
 # Tag the image for ECR
 echo "Tagging image for ECR..."
-docker tag $ECR_REPOSITORY_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG
+docker tag $ECR_REPOSITORY_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG
 
 # Push the image to ECR
 echo "Pushing image to ECR..."
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG
+docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG
 if [ $? -ne 0 ]; then
   echo "Error: Failed to push image to ECR."
   exit 1
@@ -66,5 +66,5 @@ fi
 
 echo "==============================================================================="
 echo "SUCCESS: Image successfully built and pushed to ECR"
-echo "Repository: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG"
+echo "Repository: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPOSITORY_NAME:$IMAGE_TAG"
 echo "==============================================================================="

@@ -226,7 +226,7 @@ class WorkflowStack(Stack):
                 environment={
                     "SAGEMAKER_ENDPOINT_NAME": self.sgm_quality_endpoint_name,
                     "MARKETPLACE_ENDPOINT_NAME": self.marketplace_endpoint_name or "",
-                    "QUALITY_ESTIMATION_MODE": "MARKETPLACE_SELF_HOSTED" if self.marketplace_endpoint_name else "OPEMN_SOURCE_SELF_HOSTED",
+                    "QUALITY_ESTIMATION_MODE": "OPEN_SOURCE_SELF_HOSTED",
                     "USE_CROSS_ACCOUNT_ENDPOINT": "N",  # Set to 'Y' if using cross-account access
                     "CROSS_ACCOUNT_ENDPOINT_ACCESS_ROLE_ARN": "<Replace with actual role ARN if needed>",  # Replace with actual role ARN if needed
                     "CROSS_ACCOUNT_ENDPOINT_ACCOUNT_ID": "<Replace with actual account ID if needed>"  # Replace with actual account ID if needed

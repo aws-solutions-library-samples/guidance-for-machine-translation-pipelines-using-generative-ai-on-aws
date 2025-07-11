@@ -115,7 +115,11 @@ This Guidance is best suited for regions where Amazon Bedrock and all required m
 The solution needs access to two S3 buckets, respectively for input and output data. You may use pre-existing buckets or create new ones. Throughout the guide we will refer to these buckets as "your-input-bucket-name" and "your-output-bucket-name".
 
 ### HuggingFace Access Token for COMET Score estimation model
+This guidance deploys [COMETKiki model](https://huggingface.co/Unbabel/wmt22-cometkiwi-da) quality scoring model as a SageMaker self-hosted endpoint. At first runtime it downloads open source weights from HuggingFace. You will need to provide a Hugging Face access token with sufficient permissions for the endpoint to work. The screenshot below provides an example of the minimal set of permissions required:
 
+<img src="assets/images/hugging-face-token-permissions.png" alt="HF Minimum Permissions"/>
+
+Please note that the open source version is intented for experimentation and testing only. For a commercial use, please refer to [Widn.ai MarketPlace listings](https://aws.amazon.com/marketplace/seller-profile?id=seller-akt6pplk7dme2)
 
 ## Deployment Steps (required)
 
@@ -290,8 +294,6 @@ The pipeline uses several Lambda functions with configurable environment variabl
 - `SAGEMAKER_ENDPOINT_NAME`: Name of the SageMaker quality estimation endpoint
 - `QUALITY_ESTIMATION_MODE`: Mode for quality estimation model hosting ("MARKETPLACE_SELF_HOSTED" or "OPEN_SOURCE_SELF_HOSTED", default: OPEN_SOURCE_SELF_HOSTED)
 
-This guidance deploys ![Unbabel COMETKiwi](https://huggingface.co/Unbabel/wmt22-cometkiwi-da) quality scoring model as a SageMaker self-hosted endpoint. At first runtime it downloads open source weights from HuggingFace. Please note that the open source version is intented for experimentation and testing only. For a commercial use, please refer to ![Widn.ai MarketPlace listings](https://aws.amazon.com/marketplace/seller-profile?id=seller-akt6pplk7dme2)
-
 **Translation and Assessment Functions:**
 - `WORKFLOW_SECRET_ARN`: ARN of the workflow configuration secret containing Bedrock model IDs and inference profiles
 
@@ -318,6 +320,78 @@ aws s3 cp s3://your-output-bucket-name/user123/<execution-id>/analysis/results.j
    - Quality assessment scores
    - Quality estimation metrics
    - Recommendations for improvement
+
+### Accessing Solution Output
+
+Result files are stored in your output S3 bucket following this path structure:
+```
+s3://{output_bucket_name}/{callerId}/{executionId}/analysis/
+```
+
+To find the execution ID:
+- **Step Functions Console**: Navigate to your state machine execution and copy the execution ARN's ID portion
+- **CLI**: Use the execution ARN returned from the `start-execution` command
+
+### Quick Data Review with S3 Select
+
+For rapid data exploration, use Amazon S3 Select directly from the S3 console:
+
+1. Navigate to the results JSON file in your S3 bucket
+2. Select **Actions** → **Query with S3 Select**
+3. Configure the following settings:
+   - **Format**: JSON
+   - **JSON Content type**: Lines
+   - **Compression**: None
+   - **Output settings**: JSON
+4. Run the default query: `SELECT * FROM s3object s LIMIT 5`
+
+This allows you to quickly explore translation results, quality assessments, and identify records that need attention without downloading the entire file.
+
+### Output JSON Schema
+
+Each line in the results file follows this JSON structure:
+
+```json
+{
+  "recordId": "string",
+  "assessment": {
+    "dimensions": {
+      "accuracy": {
+        "comment": "string",
+        "status": "MEETS_REQUIREMENTS|NEEDS_ATTENTION|NOT_ASSESSED"
+      },
+      "fluency": {
+        "comment": "string",
+        "status": "MEETS_REQUIREMENTS|NEEDS_ATTENTION|NOT_ASSESSED"
+      },
+      "style": {
+        "comment": "string",
+        "status": "MEETS_REQUIREMENTS|NEEDS_ATTENTION|NOT_ASSESSED"
+      },
+      "terminology": {
+        "comment": "string",
+        "status": "MEETS_REQUIREMENTS|NEEDS_ATTENTION|NOT_ASSESSED"
+      }
+    },
+    "overall_status": "MEETS_REQUIREMENTS|NEEDS_ATTENTION|ERROR"
+  },
+  "source_language": "string",
+  "source_text": "string",
+  "target_language": "string",
+  "translated_text": "string",
+  "score": "number"
+}
+```
+
+**Field Descriptions:**
+- `recordId`: Unique identifier for each translation record
+- `assessment.dimensions`: Quality evaluation across four dimensions (accuracy, fluency, style, terminology)
+- `assessment.overall_status`: Overall quality assessment result
+- `source_language`: Source language code
+- `source_text`: Original text to be translated
+- `target_language`: Target language code
+- `translated_text`: Generated translation
+- `score`: COMET quality estimation score (numerical value)
 
 ## Translation Memory
 
@@ -346,7 +420,7 @@ Follow these steps to set up and populate the translation memory database:
 
 3. **Follow the notebook instructions to:**
    - Install required Python dependencies
-   - Load sample WMT19 French-German translation data from HuggingFace
+   - Load sample WMT19 French-German translation sample data
    - Generate embeddings using Amazon Bedrock's Titan model
    - Populate the Aurora PostgreSQL database with translation pairs and embeddings
    - Test vector similarity search functionality

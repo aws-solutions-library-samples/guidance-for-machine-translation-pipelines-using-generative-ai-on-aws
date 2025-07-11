@@ -10,7 +10,7 @@ s3 = boto3.resource('s3')
 secretsmanager = boto3.client('secretsmanager')
 
 # Get model_id from workflow secret
-def get_model_id():
+def get_model_id(caller_id=None):
     secret_arn = os.getenv('WORKFLOW_SECRET_ARN')
     if not secret_arn:
         return 'us.amazon.nova-pro-v1:0'  # fallback
@@ -18,12 +18,19 @@ def get_model_id():
     try:
         response = secretsmanager.get_secret_value(SecretId=secret_arn)
         secret_data = json.loads(response['SecretString'])
+        
+        # Try caller-specific config first
+        if caller_id:
+            caller_specific_key = f'bedrock_model_id.{caller_id}'
+            if caller_specific_key in secret_data:
+                print(f"Using caller-specific model_id: {secret_data[caller_specific_key]}")
+                return secret_data[caller_specific_key]
+        
+        # Fall back to general config
         return secret_data.get('bedrock_model_id', 'us.amazon.nova-pro-v1:0')
     except Exception as e:
         print(f"Error retrieving model_id from secret: {e}")
         return 'us.amazon.nova-pro-v1:0'  # fallback
-
-model_id = get_model_id()
 
 def get_required_env_var(var_name):
     """Retrieve an environment variable that is required for the application."""
@@ -66,14 +73,15 @@ def lambda_handler(event, context):
     outputs = []
     for item_element in event['Items']:
         item = item_element['item']
-        output = process_record(item)
+        caller_id = item_element.get('callerId')
+        output = process_record(item, caller_id)
         record = item.copy()
         record['modelOutput'] = output['text']
         record['inferenceStatus'] = output['status']
         outputs.append(record)
     return outputs
 
-def process_record(record):
+def process_record(record, caller_id=None):
     
     # Read and process the input file
     processed_records = []
@@ -99,6 +107,9 @@ def process_record(record):
             "system": system_list,
             "inferenceConfig": inf_params,
         }
+        
+        # Get model ID for this caller
+        model_id = get_model_id(caller_id)
         
         # Invoke the model
         response = bedrock_runtime.invoke_model(

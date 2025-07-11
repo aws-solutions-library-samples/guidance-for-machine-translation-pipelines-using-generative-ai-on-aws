@@ -361,6 +361,51 @@ Once initialized, the translation memory will automatically provide context to i
 
 **Important:** Ensure that the `ENABLE_TRANSLATION_MEMORY` environment variable is set to "true" in the Prompt Generator Lambda function to activate translation memory functionality.
 
+## Model Configuration and Customization
+
+The solution provides flexible configuration options for model selection and prompt customization, enabling caller-specific settings for cost optimization and quality control.
+
+### Caller-Specific Model Configuration
+
+You can configure different Amazon Bedrock models or inference profiles for specific callers by updating the workflow configuration secret in AWS Secrets Manager. This enables:
+
+- **Cost tracking**: Different models have varying costs, allowing you to optimize expenses per use case
+- **Quality optimization**: Select models best suited for specific language pairs or content types
+- **Performance tuning**: Choose faster models for real-time scenarios or more accurate models for critical translations
+
+To configure caller-specific models:
+
+1. Navigate to AWS Secrets Manager console
+2. Find the secret named `workflow-bedrock-config` (or your custom secret name)
+3. Update the JSON configuration with caller-specific model mappings:
+
+```json
+{
+  "bedrock_model_id": "us.amazon.nova-pro-v1:0", # Default
+  "bedrock_model_id.premium_user": "us.amazon.nova-pro-v1:0",
+  "assessment_model_id.budget_user": "arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/abc123def456", #Using inference profile
+  "assessment_model_id": "us.amazon.nova-pro-v1:0",
+  "assessment_model_id.premium_user": "us.amazon.nova-pro-v1:0",
+  "assessment_model_id.premium_user": "arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/abc123def456"
+}
+```
+
+### Custom Prompt Templates
+
+Prompt templates can be customized for different translation scenarios and caller requirements:
+
+**Translation Prompts**: Modify `source/lambda/prompt_generator/prompt_template.txt` to:
+- Add domain-specific instructions
+- Include formatting requirements
+- Specify tone or style preferences
+
+**Quality Assessment Prompts**: Update `source/lambda/quality_assessment/prompt_template.txt` to:
+- Focus on specific quality criteria
+- Add industry-specific evaluation metrics
+- Customize scoring rubrics
+
+Prompt templates support dynamic variables including `{source_language}`, `{target_language}`, `{source_text}`, and `{context}` for flexible content generation.
+
 
 ## Next Steps
 

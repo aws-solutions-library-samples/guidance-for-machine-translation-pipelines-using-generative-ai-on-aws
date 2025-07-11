@@ -10,7 +10,8 @@ from aws_cdk import (
     aws_secretsmanager as secretsmanager,
     Duration,
     Fn,
-    RemovalPolicy
+    RemovalPolicy,
+    SecretValue
 
 )
 from constructs import Construct
@@ -575,14 +576,10 @@ class WorkflowStack(Stack):
         secret = secretsmanager.Secret(
             self, "WorkflowSecret",
             secret_name=secret_name,
-            generate_secret_string=secretsmanager.SecretStringGenerator(
-                secret_string_template=json.dumps({
-                    "bedrock_model_id": "us.amazon.nova-pro-v1:0",
-                    "assessment_model_id": "us.amazon.nova-pro-v1:0"
-                }),
-                generate_string_key="placeholder",
-                exclude_characters=" %+~`#$&*()|[]{}:;<>?!'/\"\\@"
-            )
+            secret_object_value={
+                    "bedrock_model_id": SecretValue.unsafe_plain_text("amazon.nova-pro-v1:0"),
+                    "assessment_model_id": SecretValue.unsafe_plain_text("amazon.nova-pro-v1:0")
+            }
         )
         
         # Add CDK-Nag suppression for secret without automatic rotation

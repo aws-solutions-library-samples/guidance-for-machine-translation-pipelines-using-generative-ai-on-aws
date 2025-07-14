@@ -208,6 +208,12 @@ Once the q chat session is initialized run:
 ```
 Make sure your credentials are properly configured prior to initiating the Q Chat session.
 
+If Q CLI hangs for any reason you can hit Ctrl+C to stop the current action and prompt it to resume the deployment. You can say "Keep going!" for example.
+
+Once the solution is deployed, feel free to ask Q to run a test for you.
+
+If you encounter any environment related issue during deployment, the Q CLI Agent can also be a great resoure to  help you troubleshoot and solve.
+
 ## Deployment Validation
 
 1. Open the AWS CloudFormation console and verify that all stacks have been created successfully with a status of "CREATE_COMPLETE":

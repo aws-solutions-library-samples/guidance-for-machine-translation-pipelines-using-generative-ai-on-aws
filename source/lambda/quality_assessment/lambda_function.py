@@ -4,15 +4,36 @@ import boto3
 import os
 import re
 
-model_id = os.getenv('MODEL_ID', 'us.amazon.nova-pro-v1:0')
-
+MODEL_ID = os.getenv('MODEL_ID')
+BATCH_ROLE_ARN = os.environ.get('BATCH_ROLE_ARN',)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+bedrock = boto3.client(service_name="bedrock")
+s3 = boto3.client('s3')
+ssm = boto3.client('ssm')
+sfn = boto3.client('stepfunctions')
+
+# Load prompt template
+with open('task_prompt_template.txt', 'r') as file: # nosemgrep
+    PROMPT_TEMPLATE = file.read()
+
+with open('system_prompt_template.txt', 'r') as file: # nosemgrep
+        SYSTEM_PROMPT_TEMPLATE = file.read()
+
 def lambda_handler(event, context):
+    logger.info(f"Received event: {json.dumps(event)}")
+    
+    # Check if this is a batch inference request
+    if 'inferenceMethod' in event and event['inferenceMethod'] == 'batch':
+        return handle_batch_inference(event, context)
+    else:
+        # Handle on-demand processing
+        return handle_on_demand_processing(event, context)
+
+def handle_on_demand_processing(event, context):
     translation_items = []
     try:
-        logger.info(f"Received event: {json.dumps(event)}")
         for item_element in event['Items']:
             item = item_element['item']
             assessed_translation_item = assess_translation_item(item)
@@ -26,6 +47,166 @@ def lambda_handler(event, context):
                 'error': f'Error processing request: {str(e)}'
             })
         }
+
+def handle_batch_inference(event, context):
+    try:
+        execution_id = event.get('executionId')
+        bucket = event.get('input_bucket')
+        input_key = event.get('input_file')
+        if bucket in input_key:
+            input_key = input_key.split(f"{bucket}/")[1]
+            logger.info(f"input_key: {input_key}")
+            
+        prefix = input_key.split("pipeline")[0]
+        task_token = event.get('taskToken', '')
+        
+        
+        if not BATCH_ROLE_ARN:
+            raise ValueError("BATCH_ROLE_ARN environment variable is not set")
+        
+        # Download and process batch output file
+        prompts_file_key = prepare_assessment_prompts(bucket, input_key, prefix, execution_id)
+        
+        # Start Bedrock batch inference job
+        job_name = f"assessment-job-{execution_id}"
+        
+        response = bedrock.create_model_invocation_job(
+            jobName=job_name,
+            roleArn=BATCH_ROLE_ARN,
+            modelId=MODEL_ID,
+            inputDataConfig={
+                "s3InputDataConfig": {
+                    "s3Uri": f"s3://{bucket}/{prompts_file_key}"
+                }
+            },
+            outputDataConfig={
+                "s3OutputDataConfig": {
+                    "s3Uri": f"s3://{bucket}/{prefix}pipeline/quality_control/{execution_id}/"
+                }
+            }
+        )
+        
+        job_arn = response['jobArn']
+        logger.info(f"Started Bedrock batch job: {job_arn}")
+        
+        # Store task token in Parameter Store
+        param_name = f"/bedrock/batch-jobs/{execution_id}/assessment-task-token"
+        ssm.put_parameter(
+            Name=param_name,
+            Value=task_token,
+            Type='SecureString',
+            Overwrite=True
+        )
+        
+        return {
+            'statusCode': 200,
+            'jobArn': job_arn,
+            'jobName': job_name,
+            'outputLocation': f"s3://{os.path.join(bucket,prefix,"pipeline/quality_control/")}",
+            'taskTokenParameter': param_name
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting batch assessment job: {str(e)}", exc_info=True)
+        if task_token:
+            try:
+                sfn.send_task_failure(
+                    taskToken=task_token,
+                    error='BatchAssessmentJobStartError',
+                    cause=str(e)
+                )
+            except Exception as token_error:
+                logger.error(f"Error sending task failure: {str(token_error)}")
+        
+        return {
+            'statusCode': 500,
+            'error': str(e),
+            'message': 'Error starting Bedrock batch assessment job'
+        }
+
+def prepare_assessment_prompts(bucket, input_key, prefix, execution_id):
+    """Download batch output, create assessment prompts, and upload to S3"""
+    try:
+        # Download the batch output file
+        response = s3.get_object(Bucket=bucket, Key=input_key)
+        batch_content = response['Body'].read().decode('utf-8')
+        
+        # Process each line and create assessment prompts
+        assessment_prompts = []
+        for line in batch_content.strip().split('\n'):
+            if line.strip():
+                record = json.loads(line)
+                modelInput = create_assessment_prompt(record)
+                recordId = record['recordId']
+                if modelInput:
+                    assessment_prompts.append({'modelInput':modelInput,'recordId':recordId})
+        
+        # Upload prompts file to S3
+        prompts_content = '\n'.join([json.dumps(prompt) for prompt in assessment_prompts])
+        prompts_file_key = os.path.join(prefix,f"pipeline/assessment_prompts/prompts.jsonl")
+        
+        s3.put_object(
+            Bucket=bucket,
+            Key=prompts_file_key,
+            Body=prompts_content,
+            ContentType='application/jsonl'
+        )
+        
+        logger.info(f"Created assessment prompts file: s3://{bucket}/{prompts_file_key}")
+        return prompts_file_key
+        
+    except Exception as e:
+        logger.error(f"Error preparing assessment prompts: {str(e)}", exc_info=True)
+        raise
+
+def create_assessment_prompt(record):
+    """Create assessment prompt from batch output record"""
+    try:
+        model_input = record['modelInput']
+        model_output = record['modelOutput']
+        
+        # Extract source text from model input
+        input_text = model_input['messages'][0]['content'][0]['text']
+        
+        # Parse source and target languages
+        source_lang_match = re.search(r'from\s+(\w+)\s+to', input_text)
+        target_lang_match = re.search(r'to\s+(\w+)', input_text)
+        
+        source_lang = source_lang_match.group(1) if source_lang_match else "unknown"
+        target_lang = target_lang_match.group(1) if target_lang_match else "unknown"
+        
+        # Extract source text
+        source_text_match = re.search(r'Source text \(.*?\):(.*?)(?:Context information:|$)', input_text, re.DOTALL)
+        source_text = source_text_match.group(1).strip() if source_text_match else ""
+        
+        # Extract translated text from model output
+        translated_text = model_output['output']['message']['content'][0]['text'].strip()
+        
+        # Fill in the template
+        prompt = PROMPT_TEMPLATE.replace('{{source_lang}}', source_lang)
+        prompt = prompt.replace('{{target_lang}}', target_lang)
+        prompt = prompt.replace('{{source_text}}', source_text)
+        prompt = prompt.replace('{{translated_text}}', translated_text)
+
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.replace('{{source_lang}}', source_lang)
+        system_prompt = system_prompt.replace('{{target_lang}}', target_lang)
+        return {
+            "messages": [
+                {"role": "user", "content": [{"text": prompt}]}
+            ],
+            "system": [
+                {"text": system_prompt}
+            ],
+            "inferenceConfig": {
+                "maxTokens": int(os.getenv('MAX_NEW_TOKEN', 512)),
+                "topP": float(os.getenv('TOP_P', 0.9)),
+                "temperature": float(os.getenv('TEMPERATURE', 0.1))
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating assessment prompt for record {record.get('recordId', 'unknown')}: {str(e)}")
+        return None
 
 def assess_translation_item(item):
     """
@@ -113,39 +294,23 @@ def assess_translation_item(item):
     # Extract translated text from output
     translated_text = output_text.strip()
     
-    # Load prompt template
-    try:
-        with open('prompt_template.txt', 'r') as file: # nosemgrep
-            prompt_template = file.read()
-    except Exception as e:
-        logger.error(f"Error loading prompt template: {str(e)}")
-        # Fallback to a basic template if file can't be loaded
-        prompt_template = """
-        Task: Your task is to carefully read a source text and a translation from {{source_lang}} to {{target_lang}}, and then give constructive criticism and helpful recommendations to improve the translation.
-
-        <SOURCE_TEXT>
-        {{source_text}}
-        </SOURCE_TEXT>
-
-        <TRANSLATION>
-        {{translated_text}}
-        </TRANSLATION>
-        
-        Provide assessment in JSON format with overall_status and dimensions (accuracy, fluency, style, terminology).
-        """
     
     # Fill in the template
-    prompt = prompt_template.replace('{{source_lang}}', source_lang)
+    prompt = PROMPT_TEMPLATE.replace('{{source_lang}}', source_lang)
     prompt = prompt.replace('{{target_lang}}', target_lang)
     prompt = prompt.replace('{{source_text}}', source_text)
     prompt = prompt.replace('{{translated_text}}', translated_text)
+    
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.replace('{{source_lang}}', source_lang)
+    system_prompt = system_prompt.replace('{{target_lang}}', target_lang)
+    
     
     # Invoke Amazon Nova Pro via Bedrock
     bedrock_runtime = boto3.client('bedrock-runtime')
     
     # Define your system prompt(s).
     system_list = [
-        {"text": f"You are an expert in language translation from {source_lang} to {target_lang} quality assessment."}
+        {"text": system_prompt}
     ]
 
     # Define one or more messages using the "user" and "assistant" roles.
@@ -172,7 +337,7 @@ def assess_translation_item(item):
     # Invoke the model
     try:
         response = bedrock_runtime.invoke_model(
-            modelId=model_id,
+            modelId=MODEL_ID,
             contentType='application/json',
             accept='application/json',
             body=json.dumps(request_body)

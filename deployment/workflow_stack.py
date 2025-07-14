@@ -7,10 +7,14 @@ from aws_cdk import (
     aws_logs as logs,
     aws_glue as glue,
     aws_s3_assets as s3_assets,
+    aws_sns as sns,
     aws_secretsmanager as secretsmanager,
+    aws_events as events,
+    aws_events_targets as targets,
     Duration,
     Fn,
     RemovalPolicy,
+    Aws,
     SecretValue
 
 )
@@ -33,6 +37,9 @@ class WorkflowStack(Stack):
         secret_name = self.node.try_get_context('config_secret_name') or 'workflow-bedrock-config'
         self.workflow_secret = self._create_workflow_secret(secret_name)
 
+        # Create Bedrock Batch Inference Role
+        self.bedrock_batch_role = self._create_batch_inference_role()
+
         lambda_functions = self._create_lambda_functions()
         step_functions_role = self._create_step_functions_role(lambda_functions)
 
@@ -53,6 +60,7 @@ class WorkflowStack(Stack):
             "lambdainvoke_FunctionName_67ab9c2d": lambda_functions["quality_assessment"].function_arn,
             "lambdainvoke_FunctionName_89ef1d3b": lambda_functions["quality_assessment_notification"].function_arn,
             "lambdainvoke_FunctionName_5fc2e3a1": lambda_functions["inference_transformation"].function_arn,
+            "lambdainvoke_FunctionName_396fnq4c": lambda_functions["quality_assessment_result_tranformation"].function_arn,
             "GlueJobName": glue_job.name
         }
 
@@ -73,6 +81,9 @@ class WorkflowStack(Stack):
             tracing_configuration={ "enabled": True }
         )
 
+        # Create EventBridge rule for Bedrock batch inference notifications
+        self._create_bedrock_eventbridge_rule()
+        
         # Add CDK-Nag suppressions for workflow stack resources
         self._add_cdk_nag_suppressions(state_machine, step_functions_role, log_group, lambda_functions)
 
@@ -113,7 +124,8 @@ class WorkflowStack(Stack):
                     "reason": "Wildcard is required for Step Functions execution paths",
                     "appliesTo": [
                         "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:WorkflowStack/Map:*",
-                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:BatchMachineTranslationStateMachineCDK/*"
+                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:BatchMachineTranslationStateMachineCDK/*",
+                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:WorkflowStack/Map:*"
                     ]
                 },
                 {
@@ -163,6 +175,88 @@ class WorkflowStack(Stack):
             ]
         )
 
+    
+    def _create_batch_inference_role(self):
+        account_id = self.account  # Automatically resolves AWS account ID
+        input_bucket = self.input_bucket_name
+        output_bucket = self.output_bucket_name
+
+        # Construct S3 bucket ARNs
+        s3_resources = [
+            f"arn:aws:s3:::{input_bucket}",
+            f"arn:aws:s3:::{input_bucket}/*",
+            f"arn:aws:s3:::{output_bucket}",
+            f"arn:aws:s3:::{output_bucket}/*"
+        ]
+
+        # Construct Bedrock resource ARNs
+        bedrock_resources = [
+            f"arn:aws:bedrock:{Aws.REGION}:{account_id}:inference-profile/us.amazon.nova-pro-v1:0",
+            "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0",
+            "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-pro-v1:0",
+            "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-pro-v1:0"
+        ]
+
+        # Create the role
+        role = iam.Role(
+            self, "BatchInferenceBedrockRole",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock.amazonaws.com",
+                conditions={
+                    "StringEquals": {
+                        "aws:SourceAccount": account_id
+                    },
+                    "ArnEquals": {
+                        "aws:SourceArn": f"arn:aws:bedrock:{Aws.REGION}:{account_id}:model-invocation-job/*"
+                    }
+                }
+            ),
+            description="Role for Bedrock batch inference to access S3 and invoke models"
+        )
+
+        # Attach S3 access policy
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+                resources=s3_resources,
+                conditions={
+                    "StringEquals": {
+                        "aws:ResourceAccount": account_id
+                    }
+                }
+            )
+        )
+
+        # Attach Bedrock invoke permission
+        role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["bedrock:InvokeModel"],
+                resources=bedrock_resources
+            )
+        )
+
+        # Add suppressions for Lambda role S3 bucket wildcard permissions
+        # Adding after all permissions to ensure the policy exists
+        NagSuppressions.add_resource_suppressions_by_path(
+            self,
+            f"{self.node.path}/BatchInferenceBedrockRole/DefaultPolicy/Resource",
+            [
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "The input and output buckets are working/scratchpad buckets owned by the solution. Full access to all prefixes is needed.",
+                    "appliesTo": [
+                        f"Resource::arn:aws:s3:::{self.input_bucket_name}/*",
+                        f"Resource::arn:aws:s3:::{self.output_bucket_name}/*"
+                    ]
+                }
+            ]
+        )
+
+        return role
+
+        
 
     def _create_lambda_functions(self):
         lambda_role = self._create_lambda_role()
@@ -214,7 +308,11 @@ class WorkflowStack(Stack):
                 handler="lambda_function.lambda_handler",
                 code=lambda_.Code.from_asset("../source/lambda/batch_inference"),
                 role=lambda_role,
-                timeout=Duration.minutes(5)
+                timeout=Duration.minutes(5),
+                environment={
+                    "BATCH_ROLE_ARN":self.bedrock_batch_role.role_arn,
+                    "MODEL_ID":"us.amazon.nova-pro-v1:0"
+                }
             ),
             "quality_estimation": lambda_.Function(
                 self, "QualityEstimationCDK",
@@ -240,7 +338,8 @@ class WorkflowStack(Stack):
                 role=lambda_role,
                 timeout=Duration.minutes(5),
                 environment={
-                    "WORKFLOW_SECRET_ARN": self.workflow_secret.secret_arn
+                    "BATCH_ROLE_ARN":self.bedrock_batch_role.role_arn,
+                    "MODEL_ID":"us.amazon.nova-pro-v1:0"
                 }
             ),
             "quality_assessment_notification": lambda_.Function(
@@ -256,6 +355,14 @@ class WorkflowStack(Stack):
                 runtime=lambda_.Runtime.PYTHON_3_13,
                 handler="lambda_function.lambda_handler",
                 code=lambda_.Code.from_asset("../source/lambda/inference_transformation"),
+                role=lambda_role,
+                timeout=Duration.minutes(5)
+            ),
+            "quality_assessment_result_tranformation": lambda_.Function(
+                self, "AssessmentBatchTransformation",
+                runtime=lambda_.Runtime.PYTHON_3_13,
+                handler="lambda_function.lambda_handler",
+                code=lambda_.Code.from_asset("../source/lambda/quality_assessment_result_tranformation"),
                 role=lambda_role,
                 timeout=Duration.minutes(5)
             )
@@ -357,26 +464,40 @@ class WorkflowStack(Stack):
 
         lambda_role.add_managed_policy(iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole"))
         
-        lambda_role.add_to_policy(iam.PolicyStatement(
-            effect=iam.Effect.ALLOW,
-            actions=[
-                "bedrock:InvokeModel",
-                "bedrock:InvokeModelWithResponseStream",
-                "bedrock:GetModelCustomizationJob",
-                "bedrock:ListModelCustomizationJobs"
-            ],
-            resources=["*"]
-        ))
-
-        # Add permissions to list models
-        lambda_role.add_to_policy(iam.PolicyStatement(
+        bedrock_batch_policy_statement = iam.PolicyStatement(
+            sid="BatchInference",
             effect=iam.Effect.ALLOW,
             actions=[
                 "bedrock:ListFoundationModels",
-                "bedrock:GetFoundationModel"
+                "bedrock:GetFoundationModel",
+                "bedrock:ListInferenceProfiles",
+                "bedrock:GetInferenceProfile",
+                "bedrock:ListCustomModels",
+                "bedrock:GetCustomModel",
+                "bedrock:TagResource",
+                "bedrock:UntagResource",
+                "bedrock:ListTagsForResource",
+                "bedrock:CreateModelInvocationJob",
+                "bedrock:GetModelInvocationJob",
+                "bedrock:ListModelInvocationJobs",
+                "bedrock:StopModelInvocationJob"
             ],
             resources=["*"]
-        )) 
+        )
+        policy = iam.Policy(
+            self, "BedrockBatchInferencePolicy",
+            statements=[bedrock_batch_policy_statement]
+        )
+        policy.attach_to_role(lambda_role)
+        NagSuppressions.add_resource_suppressions(
+            policy,
+            suppressions=[{
+                "id": "AwsSolutions-IAM5",
+                "reason": "The wildcard resource is required because Bedrock does not yet support resource-level permissions for these actions."
+            }],
+            apply_to_children=True
+        )
+
         
         # Add specific Secrets Manager permissions for both database and workflow secrets
         lambda_role.add_to_policy(iam.PolicyStatement(
@@ -408,7 +529,26 @@ class WorkflowStack(Stack):
                 f"arn:aws:s3:::{self.output_bucket_name}/*"
             ]
         ))
-        
+
+        lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["iam:PassRole"],
+                resources=[
+                    self.bedrock_batch_role.role_arn
+                ]
+            )
+        )
+
+        lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["ssm:PutParameter"],
+                resources=[
+                    f"arn:aws:ssm:{self.region}:{self.account}:parameter/bedrock/batch-jobs/*"
+                ]
+            )
+        )
         # Add suppressions for Lambda role S3 bucket wildcard permissions
         # Adding after all permissions to ensure the policy exists
         NagSuppressions.add_resource_suppressions_by_path(
@@ -422,6 +562,16 @@ class WorkflowStack(Stack):
                         f"Resource::arn:aws:s3:::{self.input_bucket_name}/*",
                         f"Resource::arn:aws:s3:::{self.output_bucket_name}/*"
                     ]
+                }
+            ]
+        )
+        NagSuppressions.add_resource_suppressions_by_path(
+            self,
+            f"{self.node.path}/TranslationLambdaRole/DefaultPolicy/Resource",
+            suppressions=[
+                {
+                    "id": "AwsSolutions-IAM5",
+                    "reason": "Lambda stores task tokens under a dynamic SSM parameter name for async Step Function orchestration. Wildcard is required for /bedrock/batch-jobs/* path."
                 }
             ]
         )
@@ -577,10 +727,11 @@ class WorkflowStack(Stack):
             self, "WorkflowSecret",
             secret_name=secret_name,
             secret_object_value={
-                    "bedrock_model_id": SecretValue.unsafe_plain_text("amazon.nova-pro-v1:0"),
-                    "assessment_model_id": SecretValue.unsafe_plain_text("amazon.nova-pro-v1:0")
+                    "bedrock_model_id": SecretValue.unsafe_plain_text("us.amazon.nova-pro-v1:0"),
+                    "assessment_model_id": SecretValue.unsafe_plain_text("us.amazon.nova-pro-v1:0")
             }
         )
+
         
         # Add CDK-Nag suppression for secret without automatic rotation
         NagSuppressions.add_resource_suppressions(
@@ -594,3 +745,44 @@ class WorkflowStack(Stack):
         )
         
         return secret
+    
+    def _create_bedrock_eventbridge_rule(self):
+        """Create EventBridge rule for Bedrock batch inference notifications"""
+
+        # Import the SNS topic from another stack
+        success_topic_arn = Fn.import_value("SageMakerSuccessTopicArn")
+
+        # Import the SNS topic object
+        success_topic = sns.Topic.from_topic_arn(
+            self, "ImportedSuccessTopic", success_topic_arn
+        )
+
+        # Create role for EventBridge to publish to SNS
+        eventbridge_role = iam.Role(
+            self, "EventBridgeToSnsRole",
+            assumed_by=iam.ServicePrincipal("events.amazonaws.com")
+        )
+
+        eventbridge_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=["sns:Publish"],
+                resources=[success_topic_arn]
+            )
+        )
+
+        # Create EventBridge rule
+        events.Rule(
+            self, "BedrockBatchInferenceRule",
+            rule_name="bedrock-batch-inference-rule",
+            event_pattern=events.EventPattern(
+                source=["aws.bedrock"],
+                detail_type=["Batch Inference Job State Change"]
+            ),
+            targets=[
+                targets.SnsTopic(
+                    topic=success_topic,
+                    # role=eventbridge_role
+                )
+            ]
+        )

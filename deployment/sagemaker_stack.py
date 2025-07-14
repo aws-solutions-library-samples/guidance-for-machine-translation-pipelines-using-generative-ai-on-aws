@@ -60,6 +60,8 @@ class SageMakerStack(Stack):
             topic_name=f"{topic_name}-success",
             enforce_ssl=True
         )
+        # Grant EventBridge permission to publish to the SNS topic
+        success_topic.grant_publish(iam.ServicePrincipal("events.amazonaws.com"))
         
         error_topic = sns.Topic(
             self, "SageMakerAsyncErrorTopic",
@@ -70,8 +72,7 @@ class SageMakerStack(Stack):
         # Create SageMaker execution role with least privilege
         sagemaker_role = iam.Role(
             self, "SageMakerExecutionRole",
-            assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com"),
-            role_name="SageMaker-ExecutionRole-QualityEstimation"
+            assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com")
         )
         
         # Add specific permissions instead of using the broad managed policy
@@ -218,22 +219,10 @@ class SageMakerStack(Stack):
         notification_lambda_role = iam.Role(
             self, "NotificationLambdaRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
-            role_name="SageMaker-Notification-Lambda-Role"
         )
         
-        # Add specific CloudWatch Logs permissions instead of using managed policy
-        notification_lambda_role.add_to_policy(
-            iam.PolicyStatement(
-                effect=iam.Effect.ALLOW,
-                actions=[
-                    "logs:CreateLogGroup",
-                    "logs:CreateLogStream",
-                    "logs:PutLogEvents"
-                ],
-                resources=[
-                    f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:/aws/lambda/QualityEstimationNotificationCDK:*"
-                ]
-            )
+        notification_lambda_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
         )
         
         # Define Step Functions state machine ARN pattern for more specific permissions
@@ -250,6 +239,31 @@ class SageMakerStack(Stack):
             ]
         )
         notification_lambda_role.add_to_policy(states_policy)
+
+        # Add SSM GetParameter permission
+        notification_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameter"],
+                resources=[f"arn:aws:ssm:{Aws.REGION}:{Aws.ACCOUNT_ID}:parameter/*"]
+            )
+        )
+        # Add permission to call Bedrock GetModelInvocationJob
+        notification_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["bedrock:GetModelInvocationJob"],
+                resources=[f"arn:aws:bedrock:{Aws.REGION}:{Aws.ACCOUNT_ID}:model-invocation-job/*"]
+            )
+        )
+
+        NagSuppressions.add_resource_suppressions(
+            notification_lambda_role,
+            [
+                {
+                    "id": "AwsSolutions-IAM4",
+                    "reason": "Using AWS managed policy for basic Lambda logging and monitoring is sufficient for this use case."
+                }
+            ]
+        )
         
         # Add CDK-Nag suppressions for overly permissive policy
         NagSuppressions.add_resource_suppressions_by_path(
@@ -266,7 +280,6 @@ class SageMakerStack(Stack):
         # Create notification Lambda function
         notification_lambda = lambda_.Function(
             self, "QualityEstimationNotificationLambdaCDK",
-            function_name="QualityEstimationNotificationCDK",
             runtime=lambda_.Runtime.PYTHON_3_13,
             handler="lambda_handler.lambda_handler",
             code=lambda_.Code.from_asset("../source/lambda/quality_estimation_notification"),

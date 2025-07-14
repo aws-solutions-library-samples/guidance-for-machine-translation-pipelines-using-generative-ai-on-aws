@@ -3,7 +3,7 @@ import logging
 import boto3
 import uuid
 import os
-
+import time
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -134,13 +134,13 @@ def generate_request_body(source_text, source_lang, target_lang):
     # Define one or more messages using the "user" and "assistant" roles.
     system_text, user_text = generate_translation_prompt(source_text, source_lang, target_lang)
     message_list = [{"role": "user", "content": [{"text": user_text}]}]
-    system_list = [system_text]
-
+    # system_list = [system_text]
+    system_list = [{"text":system_text}]
     # Configure the inference parameters.
-    inf_params = {"maxTokens": 500, "topP": 0.9, "topK": 20, "temperature": 0.7}
+    inf_params = {"maxTokens": 500, "topP": 0.9, "temperature": 0.5}
 
     request_body = {
-        "schemaVersion": "messages-v1",
+        # "schemaVersion": "messages-v1",
         "messages": message_list,
         "system": system_list,
         "inferenceConfig": inf_params,
@@ -149,7 +149,8 @@ def generate_request_body(source_text, source_lang, target_lang):
 
 def get_translation_customization(source_text, source_lang, target_lang):
     """Lookup similar text segments from the translation_memory table via similarity search. It uses the RDS Data API to run the query"""
-    similarities = call_rds_data_api(source_lang, target_lang, source_text)
+    # similarities = call_rds_data_api(source_lang, target_lang, source_text)
+    similarities = []
     translation_memory = ""
     for record in similarities:
         translation_memory = translation_memory+ f"{source_lang}:{source_text} ==> {target_lang}:{record['target_text']}\n"

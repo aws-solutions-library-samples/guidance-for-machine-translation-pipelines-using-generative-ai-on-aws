@@ -221,8 +221,18 @@ class SageMakerStack(Stack):
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
         )
         
-        notification_lambda_role.add_managed_policy(
-            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+        notification_lambda_role.add_to_policy(
+            iam.PolicyStatement(
+                effect=iam.Effect.ALLOW,
+                actions=[
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                resources=[
+                    f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:/aws/lambda/QualityEstimationNotificationCDK:*"
+                ]
+            )
         )
         
         # Define Step Functions state machine ARN pattern for more specific permissions
@@ -280,6 +290,7 @@ class SageMakerStack(Stack):
         # Create notification Lambda function
         notification_lambda = lambda_.Function(
             self, "QualityEstimationNotificationLambdaCDK",
+            function_name="QualityEstimationNotificationCDK",
             runtime=lambda_.Runtime.PYTHON_3_13,
             handler="lambda_handler.lambda_handler",
             code=lambda_.Code.from_asset("../source/lambda/quality_estimation_notification"),

@@ -11,6 +11,21 @@ logger.setLevel(logging.INFO)
 bedrock = boto3.client(service_name="bedrock")
 sfn = boto3.client('stepfunctions')
 ssm = boto3.client('ssm')
+secretsmanager = boto3.client('secretsmanager')
+
+# Get model_id from workflow secret
+def get_model_id():
+    secret_arn = os.getenv('WORKFLOW_SECRET_ARN')
+    if not secret_arn:
+        return 'us.amazon.nova-pro-v1:0'  # fallback
+    
+    try:
+        response = secretsmanager.get_secret_value(SecretId=secret_arn)
+        secret_data = json.loads(response['SecretString'])
+        return secret_data.get('bedrock_model_id', 'us.amazon.nova-pro-v1:0')
+    except Exception as e:
+        print(f"Error retrieving model_id from secret: {e}")
+        return 'us.amazon.nova-pro-v1:0'  # fallback
 
 def lambda_handler(event, context):
     logger.info(repr(event))
@@ -33,7 +48,7 @@ def lambda_handler(event, context):
         prefix = input_key.split("pipeline")[0]
         task_token = event.get('taskToken', '')
         # Get model ID from environment variable or use default
-        model_id = os.environ.get('MODEL_ID')
+        model_id = get_model_id()
         # Get the role ARN from environment variable
         batch_role_arn = os.environ.get('BATCH_ROLE_ARN')
         if not batch_role_arn:

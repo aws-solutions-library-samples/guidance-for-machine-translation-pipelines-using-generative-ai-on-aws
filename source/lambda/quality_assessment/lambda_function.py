@@ -4,8 +4,7 @@ import boto3
 import os
 import re
 
-MODEL_ID = os.getenv('MODEL_ID')
-BATCH_ROLE_ARN = os.environ.get('BATCH_ROLE_ARN',)
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -13,6 +12,8 @@ bedrock = boto3.client(service_name="bedrock")
 s3 = boto3.client('s3')
 ssm = boto3.client('ssm')
 sfn = boto3.client('stepfunctions')
+secretsmanager = boto3.client('secretsmanager')
+
 
 # Load prompt template
 with open('task_prompt_template.txt', 'r') as file: # nosemgrep
@@ -20,6 +21,24 @@ with open('task_prompt_template.txt', 'r') as file: # nosemgrep
 
 with open('system_prompt_template.txt', 'r') as file: # nosemgrep
         SYSTEM_PROMPT_TEMPLATE = file.read()
+
+# Get model_id from workflow secret
+def get_model_id():
+    secret_arn = os.getenv('WORKFLOW_SECRET_ARN')
+    if not secret_arn:
+        return 'us.amazon.nova-pro-v1:0'  # fallback
+    
+    try:
+        response = secretsmanager.get_secret_value(SecretId=secret_arn)
+        secret_data = json.loads(response['SecretString'])
+        return secret_data.get('assessment_model_id', 'us.amazon.nova-pro-v1:0')
+    except Exception as e:
+        print(f"Error retrieving model_id from secret: {e}")
+        return 'us.amazon.nova-pro-v1:0'  # fallback
+    
+
+MODEL_ID = get_model_id()
+BATCH_ROLE_ARN = os.environ.get('BATCH_ROLE_ARN',)
 
 def lambda_handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")

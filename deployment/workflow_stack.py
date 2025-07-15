@@ -124,8 +124,7 @@ class WorkflowStack(Stack):
                     "reason": "Wildcard is required for Step Functions execution paths",
                     "appliesTo": [
                         "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:WorkflowStack/Map:*",
-                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:BatchMachineTranslationStateMachineCDK/*",
-                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:WorkflowStack/Map:*"
+                        "Resource::arn:aws:states:<AWS::Region>:<AWS::AccountId>:execution:BatchMachineTranslationStateMachineCDK/*"
                     ]
                 },
                 {
@@ -311,7 +310,7 @@ class WorkflowStack(Stack):
                 timeout=Duration.minutes(5),
                 environment={
                     "BATCH_ROLE_ARN":self.bedrock_batch_role.role_arn,
-                    "MODEL_ID":"us.amazon.nova-pro-v1:0"
+                    "WORKFLOW_SECRET_ARN": self.workflow_secret.secret_arn
                 }
             ),
             "quality_estimation": lambda_.Function(
@@ -339,7 +338,7 @@ class WorkflowStack(Stack):
                 timeout=Duration.minutes(5),
                 environment={
                     "BATCH_ROLE_ARN":self.bedrock_batch_role.role_arn,
-                    "MODEL_ID":"us.amazon.nova-pro-v1:0"
+                    "WORKFLOW_SECRET_ARN": self.workflow_secret.secret_arn
                 }
             ),
             "quality_assessment_notification": lambda_.Function(

@@ -22,7 +22,9 @@ database_stack = DatabaseStack(app, "DatabaseStack", vpc_id=vpc_id)
 sagemaker_stack = SageMakerStack(app, "SageMakerStack")
 
 # Deploy Workflow Stack with marketplace endpoint if specified
-workflow_stack = WorkflowStack(app, "WorkflowStack")
+workflow_stack = WorkflowStack(app,
+            "WorkflowStack",
+            description=f"SO9534 - Guidance for Machine Translation Pipelines Using Generative AI on AWS")
 
 # Add comprehensive suppressions for Glue role
 NagSuppressions.add_resource_suppressions_by_path(

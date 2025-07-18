@@ -49,16 +49,14 @@
                 }
             },
             "ItemReader": {
-                "Resource": "arn:aws:states:::s3:getObject",
-                "ReaderConfig": {
-                    "InputType": "CSV",
-                    "CSVHeaderLocation": "FIRST_ROW",
-                    "CSVDelimiter": "COMMA"
-                },
                 "Arguments": {
                     "Bucket": "{% $inputBucket %}",
                     "Key": "{% $inputFileKey %}"
-                }
+                },
+                "ReaderConfig": {
+                    "InputType": "JSON"
+                },
+                "Resource": "arn:aws:states:::s3:getObject"
             },
             "MaxConcurrency": 1000,
             "Label": "GeneratePrompts",
@@ -328,11 +326,21 @@
         },
         "StartBedorckBatchInferenceJob": {
             "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "Output": "{% $states.result.Payload %}",
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
             "Arguments": {
                 "FunctionName": "${lambdainvoke_FunctionName_379ed8b3}",
-                "Payload": "{% $states.input %}"
+                "Payload": {
+                    "executionId": "{% $executionId %}",
+                    "input_bucket": "{% $states.input.input_bucket %}",
+                    "input_file": "{% $states.input.input_file %}",
+                    "taskToken": "{% $states.context.Task.Token %}"
+                }
+            },
+            "Assign": {
+                "input_key": "{% $states.result.outputLocation %}",
+                "executionId": "{% $executionId %}",
+                "input_bucket": "{% $states.input.input_bucket %}",
+                "taskToken": "{% $states.context.Task.Token %}"
             },
             "Retry": [
                 {
@@ -348,7 +356,71 @@
                     "JitterStrategy": "FULL"
                 }
             ],
-            "End": true
+            "TimeoutSeconds": 21600,
+            "Next": "AssessTranslationQualityBatch"
+        },
+        "AssessTranslationQualityBatch": {
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_67ab9c2d}",
+                "Payload": {
+                    "inferenceMethod": "batch",
+                    "executionId": "{% $executionId %}",
+                    "input_bucket": "{% $input_bucket %}",
+                    "input_file": "{% $states.input.outputLocation %}",
+                    "taskToken": "{% $states.context.Task.Token %}"
+                }
+            },
+            "Next": "PrepareAssessTranslationBatchOutput",
+            "Assign": {
+                "input_key": "{% $states.result.outputLocation %}",
+                "executionId": "{% $executionId %}",
+                "input_bucket": "{% $input_bucket %}"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "JitterStrategy": "FULL",
+                    "MaxAttempts": 3
+                }
+            ],
+            "Type": "Task",
+            "TimeoutSeconds": 21600
+        },
+        "PrepareAssessTranslationBatchOutput": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+                "FunctionName": "${lambdainvoke_FunctionName_396fnq4c}",
+                "Payload": {
+                    "input_key": "{% $input_key %}",
+                    "executionId": "{% $executionId %}",
+                    "input_bucket": "{% $input_bucket %}"
+                }
+            },
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "Next": "QualityEstimation"
         }
     }
 }

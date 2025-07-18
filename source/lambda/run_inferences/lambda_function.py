@@ -10,7 +10,7 @@ s3 = boto3.resource('s3')
 secretsmanager = boto3.client('secretsmanager')
 
 # Get model_id from workflow secret
-def get_model_id(caller_id=None):
+def get_model_id():
     secret_arn = os.getenv('WORKFLOW_SECRET_ARN')
     if not secret_arn:
         return 'us.amazon.nova-pro-v1:0'  # fallback
@@ -18,19 +18,12 @@ def get_model_id(caller_id=None):
     try:
         response = secretsmanager.get_secret_value(SecretId=secret_arn)
         secret_data = json.loads(response['SecretString'])
-        
-        # Try caller-specific config first
-        if caller_id:
-            caller_specific_key = f'bedrock_model_id.{caller_id}'
-            if caller_specific_key in secret_data:
-                print(f"Using caller-specific model_id: {secret_data[caller_specific_key]}")
-                return secret_data[caller_specific_key]
-        
-        # Fall back to general config
         return secret_data.get('bedrock_model_id', 'us.amazon.nova-pro-v1:0')
     except Exception as e:
         print(f"Error retrieving model_id from secret: {e}")
         return 'us.amazon.nova-pro-v1:0'  # fallback
+
+model_id = get_model_id()
 
 def get_required_env_var(var_name):
     """Retrieve an environment variable that is required for the application."""
@@ -73,55 +66,26 @@ def lambda_handler(event, context):
     outputs = []
     for item_element in event['Items']:
         item = item_element['item']
-        caller_id = item_element.get('callerId')
-        output = process_record(item, caller_id)
+        output = process_record(item)
         record = item.copy()
         record['modelOutput'] = output['text']
         record['inferenceStatus'] = output['status']
         outputs.append(record)
     return outputs
 
-def process_record(record, caller_id=None):
+def process_record(record):
     
-    # Read and process the input file
-    processed_records = []
+    print(f"Record: {record}")
     try:
-        # Define your system prompt(s).
-        system_list = [
-            {"text": record['modelInput']['system'][0]}
-        ]
-
-        # Define one or more messages using the "user" and "assistant" roles.
-        message_list = record['modelInput']['messages']
-
-        # Configure the inference parameters.
-        inf_params = {
-            "max_new_tokens": record['modelInput']['inferenceConfig']['maxTokens'], 
-            "top_p": record['modelInput']['inferenceConfig']['topP'], 
-            "top_k": record['modelInput']['inferenceConfig']['topK'], 
-            "temperature": record['modelInput']['inferenceConfig']['temperature']
-        }
-
-        request_body = {
-            "messages": message_list,
-            "system": system_list,
-            "inferenceConfig": inf_params,
-        }
-        
-        # Get model ID for this caller
-        model_id = get_model_id(caller_id)
         
         # Invoke the model
-        response = bedrock_runtime.invoke_model(
+        response = bedrock_runtime.converse(
             modelId=model_id,
-            body=json.dumps(request_body)
+            **record['modelInput']
         )
         
-        # Parse the response
-        response_body = json.loads(response['body'].read())
-    
         # Add the model output to the record
-        model_output = response_body["output"]["message"]["content"][0]["text"]
+        model_output = response["output"]["message"]["content"][0]["text"]
         return {"status": "SUCCESS", "text": model_output}
     
     except Exception as e:

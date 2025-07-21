@@ -24,6 +24,7 @@ import os
 class SageMakerStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        self.template_options.description = "( SO9534 ) Guidance for Machine Translation Pipelines using Generative AI on AWS"
 
         # Get bucket name from context
         output_bucket_name = self.node.try_get_context('output_bucket_name')

@@ -1,2 +1,6 @@
 packaging==24.2
 setuptools==78.1.1
+pandarallel==1.6.5
+pgvector==0.3.6
+boto3==1.36.0
+numexpr==2.10.2

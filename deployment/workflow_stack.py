@@ -479,7 +479,8 @@ class WorkflowStack(Stack):
                 "bedrock:CreateModelInvocationJob",
                 "bedrock:GetModelInvocationJob",
                 "bedrock:ListModelInvocationJobs",
-                "bedrock:StopModelInvocationJob"
+                "bedrock:StopModelInvocationJob",
+                "bedrock:InvokeModel"
             ],
             resources=["*"]
         )

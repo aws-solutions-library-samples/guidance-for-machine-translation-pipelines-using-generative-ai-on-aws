@@ -23,7 +23,7 @@ with open('system_prompt_template.txt', 'r') as file: # nosemgrep
         SYSTEM_PROMPT_TEMPLATE = file.read()
 
 # Get model_id from workflow secret
-def get_model_id():
+def get_model_id(caller_id=None):
     secret_arn = os.getenv('WORKFLOW_SECRET_ARN')
     if not secret_arn:
         return 'us.amazon.nova-pro-v1:0'  # fallback
@@ -31,13 +31,21 @@ def get_model_id():
     try:
         response = secretsmanager.get_secret_value(SecretId=secret_arn)
         secret_data = json.loads(response['SecretString'])
+
+                # Try caller-specific config first
+        if caller_id:
+            caller_specific_key = f'bedrock_model_id.{caller_id}'
+            if caller_specific_key in secret_data:
+                print(f"Using caller-specific model_id: {secret_data[caller_specific_key]}")
+                return secret_data[caller_specific_key]
+
         return secret_data.get('assessment_model_id', 'us.amazon.nova-pro-v1:0')
     except Exception as e:
         print(f"Error retrieving model_id from secret: {e}")
         return 'us.amazon.nova-pro-v1:0'  # fallback
     
 
-MODEL_ID = get_model_id()
+MODEL_ID = get_model_id() #Default model id
 BATCH_ROLE_ARN = os.environ.get('BATCH_ROLE_ARN',)
 
 def lambda_handler(event, context):
@@ -51,10 +59,13 @@ def lambda_handler(event, context):
         return handle_on_demand_processing(event, context)
 
 def handle_on_demand_processing(event, context):
+    global MODEL_ID
     translation_items = []
     try:
         for item_element in event['Items']:
             item = item_element['item']
+            caller_id = item_element.get('callerId')
+            MODEL_ID = get_model_id(caller_id)
             assessed_translation_item = assess_translation_item(item)
             translation_items.append(assessed_translation_item)
         return translation_items
@@ -68,10 +79,12 @@ def handle_on_demand_processing(event, context):
         }
 
 def handle_batch_inference(event, context):
+    global MODEL_ID
     try:
         execution_id = event.get('executionId')
         bucket = event.get('input_bucket')
         input_key = event.get('input_file')
+        MODEL_ID = get_model_id()
         if bucket in input_key:
             input_key = input_key.split(f"{bucket}/")[1]
             logger.info(f"input_key: {input_key}")

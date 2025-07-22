@@ -240,17 +240,21 @@ aws stepfunctions describe-state-machine --state-machine-arn arn:aws:states:<reg
 
 ### Prepare Input Data
 
-1. Create a CSV file with the following columns:
-   - source_language: The language code of the source text
-   - target_language: The language code of the target text
-   - source_text: The text to be translated
-   - context: (Optional) Additional context to improve translation quality
+1. Create a JSON file matching the following structure:
+```json
+[
+    {
+        "source_text": <your_source_text>,
+        "source_lang": <source_language>,
+        "target_lang": <target_language>
+    }
+]
+```
+   You can find a sample file (sample_test.json) in the sample_data folder
 
-   You can find a sample file (sample_test.csv) in the sample_data folder
-
-2. Upload the CSV file to your input S3 bucket:
+2. Upload the JSON file to your input S3 bucket:
 ```bash
-aws s3 cp your-input-file.csv s3://your-input-bucket-name/inputs/your-input-file.csv
+aws s3 cp your-input-file.json s3://your-input-bucket-name/inputs/your-input-file.json
 ```
 
 ### Start the Translation Workflow
@@ -259,7 +263,7 @@ aws s3 cp your-input-file.csv s3://your-input-bucket-name/inputs/your-input-file
 ```bash
 aws stepfunctions start-execution \
   --state-machine-arn arn:aws:states:<region>:<account-id>:stateMachine:BatchMachineTranslationStateMachineCDK \
-  --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.csv", "inputBucket": "your-input-bucket", "outputBucket": "your-input-bucket"}'
+  --input '{"callerId": "user123", "inputFileKey": "inputs/your-input-file.json", "inputBucket": "your-input-bucket", "outputBucket": "your-input-bucket"}'
 ```
 
 You may also start the workflow from the console by opening the state machine configuration and clicking the Execute button.
@@ -268,7 +272,7 @@ You may also start the workflow from the console by opening the state machine co
 
 The pipeline accepts the following input parameters:
 - `callerId` (required): A unique identifier for tracking the translation job and organizing output files
-- `inputFileKey` (required): The S3 object key path to your CSV input file containing the translation requests
+- `inputFileKey` (required): The S3 object key path to your JSON input file containing the translation requests
 - `inputBucket` (required): Input bucket
 - `outputBucket` (required): Output bucket containing all generated files by the state machine
 
@@ -278,10 +282,8 @@ Once the state machine has run you should be able to view its entire execution a
 
 <img src="assets/images/state-machine-exec.png" alt="State Machine Execution" width="500" height="950"/>
 
-Please note that the state machine is configured to invoke Bedrock through the real-time API for any input file that includes 100 records or leszs (left side of the state machine). Beyond this threshold, the state machine swicthes to Amazon Bedrock Batch Inference mode (right side of the state machine).
-
-> [!WARNING]  
-> As of 07/09/2025 the batch mode is partially implemented. We recommend experimenting with payloads of 100 records or less, until we deliver the full batch functionality.
+Please note that the state machine is configured to invoke Bedrock through the real-time API for any input file that includes 100 records or less (right side of the state machine). Beyond this threshold, the state machine switches to Amazon Bedrock Batch Inference mode (left side of the state machine).
+Both the real time and batch mode achieve the same actions. The main difference is how the state machine steps interact with Amazon Bedrock (real time inference vs batch job).
 
 ### Lambda Function Configuration
 
@@ -469,6 +471,7 @@ To configure caller-specific models:
   "assessment_model_id.premium_user": "arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/abc123def456"
 }
 ```
+You may need to double check whether the roles attached to the Lambda functions included in the state machine are granted access to your custom inference profile.
 
 ### Custom Prompt Templates
 

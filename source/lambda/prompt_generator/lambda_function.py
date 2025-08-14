@@ -149,7 +149,7 @@ def generate_request_body(source_text, source_lang, target_lang):
 
 def get_translation_customization(source_text, source_lang, target_lang):
     """Lookup similar text segments from the translation_memory table via similarity search. It uses the RDS Data API to run the query"""
-    # similarities = call_rds_data_api(source_lang, target_lang, source_text)
+    similarities = call_rds_data_api(source_lang, target_lang, source_text)
     similarities = []
     translation_memory = ""
     for record in similarities:

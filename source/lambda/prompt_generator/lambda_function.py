@@ -72,6 +72,7 @@ def lambda_handler(event, context):
             
             # Generate translation prompt for Nova Pro
             body = generate_request_body(source_text, source_lang, target_lang)
+            logger.info(f"Generated request body: {json.dumps(body, indent=2)}")
             # Prepare response
             prompt = {
                 'recordId': unique_id,
@@ -110,10 +111,16 @@ def generate_translation_prompt(source_text, source_lang, target_lang):
     translation_memory = None
 
     if 'ENABLE_TRANSLATION_MEMORY' in os.environ and os.environ['ENABLE_TRANSLATION_MEMORY'] == 'true':
+        logger.info(f"Translation memory enabled - fetching customization for: {source_text[:50]}...")
         terminology, translation_memory = get_translation_customization(source_text, source_lang, target_lang)
+        logger.info(f"Retrieved translation memory: {translation_memory}")
+        logger.info(f"Retrieved terminology: {terminology}")
+    else:
+        logger.info("Translation memory disabled or not configured")
 
     # Load prompt template
     try:
+        logger.info("Loading prompt template from prompt_template.txt...")
         with open('prompt_template.txt', 'r') as file: # nosemgrep
             user_template = file.read()
     except Exception as e:
@@ -149,11 +156,13 @@ def generate_request_body(source_text, source_lang, target_lang):
 
 def get_translation_customization(source_text, source_lang, target_lang):
     """Lookup similar text segments from the translation_memory table via similarity search. It uses the RDS Data API to run the query"""
+    logger.info(f"Starting translation customization lookup for: {source_text[:50]}...")
     similarities = call_rds_data_api(source_lang, target_lang, source_text)
-    similarities = []
+    logger.info(f"RDS query returned {len(similarities)} results")
     translation_memory = ""
     for record in similarities:
-        translation_memory = translation_memory+ f"{source_lang}:{source_text} ==> {target_lang}:{record['target_text']}\n"
+        translation_memory = translation_memory+ f"{source_lang}:{record['source_text']} ==> {target_lang}:{record['target_text']}\n"
+    logger.info(f"Final translation memory: {translation_memory}")
     return None, translation_memory
 
 def generate_embeddings(query):
@@ -192,9 +201,14 @@ def call_rds_data_api(source_lang, target_lang, source_text):
         
         return formatted_records
 
+    logger.info("Starting RDS Data API call...")
     rds_data = boto3.client('rds-data')
+    logger.info("Generating embeddings for source text...")
     embedding_str = generate_embeddings(source_text)
+    logger.info(f"Generated embedding of length: {len(embedding_str) if embedding_str else 0}")
+    
     sql_text = f"SELECT unique_id, source_text, target_text FROM translation_memory ORDER BY source_text_embedding <=> CAST('{embedding_str}' AS VECTOR) limit 1;" # nosec B608
+    logger.info(f"Executing SQL: {sql_text[:100]}...")
 
     
     max_retries = 5
@@ -202,20 +216,29 @@ def call_rds_data_api(source_lang, target_lang, source_text):
     
     for attempt in range(max_retries):
         try:
+            logger.info(f"RDS attempt {attempt + 1}/{max_retries}")
             response = rds_data.execute_statement(
                 resourceArn = db_config['cluster_arn'], 
                 secretArn = db_config['secret_arn'], 
                 database = db_config['database_name'],
                 sql = sql_text
             )
+            logger.info(f"RDS response received: {len(response.get('records', []))} records")
             records = extract_records(response)
+            logger.info(f"Extracted {len(records)} formatted records")
             return records
             
         except rds_data.exceptions.BadRequestException as e:
+            logger.exception(f"RDS BadRequestException on attempt {attempt + 1}: {str(e)}")
             if "Communications link failure" in str(e) and attempt < max_retries - 1:
                 delay = (2 ** attempt) * base_delay  # Exponential backoff
+                logger.info(f"Retrying in {delay} seconds...")
                 time.sleep(delay)
                 continue
             raise
+        except Exception as e:
+            logger.error(f"Unexpected RDS error on attempt {attempt + 1}: {str(e)}")
+            raise
             
+    logger.warning("All RDS retry attempts failed, returning empty list")
     return []  # Return empty list if all retries failed

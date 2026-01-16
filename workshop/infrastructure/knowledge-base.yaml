@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Amazon Bedrock Knowledge Base using existing OpenSearch Serverless collection'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: S3 bucket containing terminology data
+  
+  OpenSearchCollectionArn:
+    Type: String
+    Description: ARN of existing OpenSearch Serverless collection
+    Default: 'arn:aws:aoss:us-east-1:291480921170:collection/ki8o26fy8kge7x1hax3m'
+
+Resources:
+  # IAM Role for Knowledge Base
+  KnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3AndAOSSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3BucketName}'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+              - Effect: Allow
+                Action:
+                  - aoss:APIAccessAll
+                Resource: !Ref OpenSearchCollectionArn
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+
+  # Knowledge Base
+  TranslationKnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: aws-translation-terminology
+      Description: AWS terminology for English-Russian translation
+      RoleArn: !GetAtt KnowledgeBaseRole.Arn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+      StorageConfiguration:
+        Type: OPENSEARCH_SERVERLESS
+        OpensearchServerlessConfiguration:
+          CollectionArn: !Ref OpenSearchCollectionArn
+          VectorIndexName: bedrock-knowledge-base-default-index
+          FieldMapping:
+            VectorField: bedrock-knowledge-base-default-vector
+            TextField: AMAZON_BEDROCK_TEXT_CHUNK
+            MetadataField: AMAZON_BEDROCK_METADATA
+
+  # Data Source
+  TerminologyDataSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: aws-terminology-csv
+      Description: AWS terminology CSV file
+      KnowledgeBaseId: !Ref TranslationKnowledgeBase
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Sub 'arn:aws:s3:::${S3BucketName}'
+
+Outputs:
+  KnowledgeBaseId:
+    Description: Knowledge Base ID
+    Value: !Ref TranslationKnowledgeBase
+    Export:
+      Name: !Sub '${AWS::StackName}-KnowledgeBaseId'
+
+  KnowledgeBaseArn:
+    Description: Knowledge Base ARN
+    Value: !GetAtt TranslationKnowledgeBase.KnowledgeBaseArn
+    Export:
+      Name: !Sub '${AWS::StackName}-KnowledgeBaseArn'
+
+  DataSourceId:
+    Description: Data Source ID
+    Value: !Ref TerminologyDataSource
+    Export:
+      Name: !Sub '${AWS::StackName}-DataSourceId'

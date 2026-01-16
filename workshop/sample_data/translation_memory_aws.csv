@@ -1,0 +1,21 @@
+source_segment,target_segment,source_language,target_language,domain
+"AWS Lambda is a compute service that runs code without the need to manage servers.","AWS Lambda est un service de calcul qui exécute du code sans avoir besoin de gérer des serveurs.",en,fr,cloud_computing
+"Your code runs, scaling up and down automatically, with pay-per-use pricing.","Votre code s'exécute en augmentant ou en diminuant automatiquement, avec une tarification à l'utilisation.",en,fr,cloud_computing
+"Lambda runs your code on a high-availability compute infrastructure.","Lambda exécute votre code sur une infrastructure de calcul à haute disponibilité.",en,fr,cloud_computing
+"You are responsible only for your code.","Vous êtes responsable uniquement de votre code.",en,fr,cloud_computing
+"Lambda manages all the computing resources, including server and operating system maintenance.","Lambda gère toutes les ressources informatiques, y compris la maintenance du serveur et du système d'exploitation.",en,fr,cloud_computing
+"Process real-time data streams for analytics and monitoring.","Traitez des flux de données en temps réel pour l'analyse et la surveillance.",en,fr,data_processing
+"Build scalable web apps that automatically adjust to demand.","Créez des applications Web évolutives qui s'ajustent automatiquement à la demande.",en,fr,web_development
+"Create secure API backends for mobile and web applications.","Créez des backends d'API sécurisés pour les applications mobiles et Web.",en,fr,api_development
+"Process files automatically when uploaded to Amazon Simple Storage Service.","Traitez automatiquement les fichiers lorsqu'ils sont téléchargés vers Amazon Simple Storage Service.",en,fr,file_processing
+"Run automated operations on a regular schedule using EventBridge.","Exécutez des opérations automatisées selon un calendrier régulier à l'aide d'EventBridge.",en,fr,automation
+"Lambda functions are the basic building blocks you use to create a Lambda application.","Les fonctions Lambda sont les éléments de base que vous utilisez pour créer une application Lambda.",en,fr,application_development
+"You control security and access through Lambda permissions.","Vous contrôlez la sécurité et l'accès via les autorisations Lambda.",en,fr,security
+"Event sources and AWS services trigger your Lambda functions.","Les sources d'événements et les services AWS déclenchent vos fonctions Lambda.",en,fr,event_driven
+"Lambda automatically scales your application by running code in response to each event.","Lambda met automatiquement à l'échelle votre application en exécutant du code en réponse à chaque événement.",en,fr,scalability
+"You can configure your Lambda function to access resources in a VPC.","Vous pouvez configurer votre fonction Lambda pour accéder aux ressources d'un VPC.",en,fr,networking
+"Lambda supports multiple programming languages through the use of runtimes.","Lambda prend en charge plusieurs langages de programmation grâce à l'utilisation de runtimes.",en,fr,programming
+"You can use environment variables to adjust your function's behavior without updating code.","Vous pouvez utiliser des variables d'environnement pour ajuster le comportement de votre fonction sans mettre à jour le code.",en,fr,configuration
+"Lambda integrates with AWS X-Ray to help you trace and analyze requests.","Lambda s'intègre à AWS X-Ray pour vous aider à tracer et analyser les requêtes.",en,fr,monitoring
+"You can set memory allocation for your function from 128 MB to 10,240 MB.","Vous pouvez définir l'allocation de mémoire pour votre fonction de 128 Mo à 10 240 Mo.",en,fr,resource_management
+"Lambda automatically monitors functions and reports metrics through Amazon CloudWatch.","Lambda surveille automatiquement les fonctions et rapporte les métriques via Amazon CloudWatch.",en,fr,monitoring

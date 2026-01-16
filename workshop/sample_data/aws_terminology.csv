@@ -1,0 +1,21 @@
+term_en,term_ru,definition
+Lambda,Lambda,AWS serverless compute service name - do not translate
+serverless,бессерверный,Computing model without server management
+function,функция,Unit of code execution in Lambda
+trigger,триггер,Event that invokes a Lambda function
+scaling,масштабирование,Automatic adjustment of compute resources
+compute,вычислительный,Processing power and resources
+provisioning,выделение ресурсов,Allocation of computing resources
+fault tolerance,отказоустойчивость,System's ability to continue operating despite failures
+event-driven,событийно-ориентированный,Architecture based on event triggers
+microservices,микросервисы,Architectural style with small independent services
+API Gateway,API Gateway,AWS service name - do not translate
+S3,S3,AWS storage service name - do not translate
+DynamoDB,DynamoDB,AWS database service name - do not translate
+EventBridge,EventBridge,AWS event bus service name - do not translate
+high availability,высокая доступность,System characteristic ensuring minimal downtime
+backend,бэкенд,Server-side application logic
+payload,полезная нагрузка,Data passed to or from a function
+runtime,среда выполнения,Execution environment for Lambda functions
+handler,обработчик,Entry point function in Lambda code
+execution role,роль выполнения,IAM role granting Lambda permissions

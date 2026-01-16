@@ -1,0 +1,14 @@
+AWS Lambda Overview
+
+AWS Lambda is a serverless compute service that lets you run code without provisioning or managing servers. Lambda runs your code on high-availability compute infrastructure and performs all the administration of the compute resources, including server and operating system maintenance, capacity provisioning and automatic scaling, and logging.
+
+With Lambda, you can run code for virtually any type of application or backend service. You organize your code into Lambda functions. The Lambda service runs your function only when needed and scales automatically. You only pay for the compute time that you consume—there's no charge when your code isn't running.
+
+Key Features:
+- Automatic scaling based on incoming requests
+- Built-in fault tolerance and high availability
+- Pay-per-use pricing model with no charges for idle time
+- Integration with other AWS services through event sources
+- Support for multiple programming languages including Python, Node.js, Java, and Go
+
+Lambda functions can be triggered by various AWS services such as Amazon S3, Amazon DynamoDB, Amazon API Gateway, and Amazon EventBridge. This makes Lambda ideal for building event-driven architectures and microservices.

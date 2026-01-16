@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for Chunking Lambda function'
+
+Parameters:
+  InputBucketName:
+    Type: String
+    Description: Name of the S3 bucket for input files
+  
+  OutputBucketName:
+    Type: String
+    Description: Name of the S3 bucket for output files
+
+Resources:
+  ChunkingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${InputBucketName}'
+                  - !Sub 'arn:aws:s3:::${InputBucketName}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${OutputBucketName}'
+                  - !Sub 'arn:aws:s3:::${OutputBucketName}/*'
+
+  ChunkingLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ChunkingLambdaFunction
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt ChunkingLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          from abc import abstractmethod, ABC
+          from typing import List
+          import boto3
+          import logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.DEBUG)
+
+          class Chunker(ABC):
+              @abstractmethod
+              def chunk(self, text: str) -> List[str]:
+                  raise NotImplementedError()
+
+          class SimpleChunker(Chunker):
+              def chunk(self, text: str) -> List[str]:
+                  lines = text.splitlines(keepends=True)
+                  return [line for line in lines if line.strip()]
+
+          def lambda_handler(event, context):
+              logger.debug('input={}'.format(json.dumps(event)))
+              s3 = boto3.client('s3')
+
+              # Extract relevant information from the input event
+              input_files = event.get('inputFiles')
+              input_bucket = event.get('bucketName')
+
+              if not all([input_files, input_bucket]):
+                  raise ValueError("Missing required input parameters")
+
+              output_files = []
+              chunker = SimpleChunker()
+
+              for input_file in input_files:
+                  content_batches = input_file.get('contentBatches', [])
+                  file_metadata = input_file.get('fileMetadata', {})
+                  original_file_location = input_file.get('originalFileLocation', {})
+
+                  processed_batches = []
+
+                  for batch in content_batches:
+                      input_key = batch.get('key')
+
+                      if not input_key:
+                          raise ValueError("Missing uri in content batch")
+
+                      # Read file from S3
+                      file_content = read_s3_file(s3, input_bucket, input_key)
+
+                      # Process content (chunking)
+                      chunked_content = process_content(file_content, chunker)
+
+                      output_key = f"Output/{input_key}"
+
+                      # Write processed content back to S3
+                      write_to_s3(s3, input_bucket, output_key, chunked_content)
+
+                      # Add processed batch information
+                      processed_batches.append({
+                          'key': output_key
+                      })
+
+                  # Prepare output file information
+                  output_file = {
+                      'originalFileLocation': original_file_location,
+                      'fileMetadata': file_metadata,
+                      'contentBatches': processed_batches
+                  }
+                  output_files.append(output_file)
+
+              result = {'outputFiles': output_files}
+
+              return result
+
+          def read_s3_file(s3_client, bucket, key):
+              response = s3_client.get_object(Bucket=bucket, Key=key)
+              return json.loads(response['Body'].read().decode('utf-8'))
+
+          def write_to_s3(s3_client, bucket, key, content):
+              s3_client.put_object(Bucket=bucket, Key=key, Body=json.dumps(content))
+
+          def process_content(file_content: dict, chunker: Chunker) -> dict:
+              chunked_content = {
+                  'fileContents': []
+              }
+
+              for content in file_content.get('fileContents', []):
+                  content_type = content.get('contentType', '')
+                  content_metadata = content.get('contentMetadata', {})
+
+                  words = content['contentBody']
+                  chunks = chunker.chunk(words)
+
+                  for chunk in chunks:
+                      chunked_content['fileContents'].append({
+                          'contentType': content_type,
+                          'contentMetadata': content_metadata,
+                          'contentBody': chunk
+                      })
+
+              return chunked_content
+      Environment:
+        Variables:
+          INPUT_BUCKET: !Ref InputBucketName
+          OUTPUT_BUCKET: !Ref OutputBucketName
+      Timeout: 300
+      MemorySize: 512
+
+Outputs:
+  ChunkingLambdaFunctionArn:
+    Description: ARN of the Chunking Lambda function
+    Value: !GetAtt ChunkingLambdaFunction.Arn
+    Export:
+      Name: ChunkingLambdaFunctionArn
+  
+  ChunkingLambdaFunctionName:
+    Description: Name of the Chunking Lambda function
+    Value: !Ref ChunkingLambdaFunction
+    Export:
+      Name: ChunkingLambdaFunctionName
+  
+  ChunkingLambdaRoleArn:
+    Description: ARN of the Lambda execution role
+    Value: !GetAtt ChunkingLambdaRole.Arn
+    Export:
+      Name: ChunkingLambdaRoleArn
